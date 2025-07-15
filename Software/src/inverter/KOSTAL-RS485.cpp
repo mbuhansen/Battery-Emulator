@@ -20,8 +20,10 @@ static unsigned long B1_last_millis = 0;
 static unsigned long currentMillis;
 static unsigned long startupMillis = 0;
 static unsigned long contactorMillis = 0;
-static unsigned long equipmentStopTimerStart = 0;
-static bool equipmentStopTimerActive = false;
+static unsigned long contactortestTimerStart = 0;
+static bool contactortestTimerActive = false;
+static unsigned long startupTimerStart = 0;
+static bool startupTimerActive = false;
 
 static uint16_t rx_index = 0;
 static boolean RX_allow = false;
@@ -303,10 +305,16 @@ void receive_RS485()  // Runs as fast as possible to handle the serial stream
 {
   currentMillis = millis();
 
-  // Auto-reset equipment_stop_active efter 10 sekunder
-if (equipmentStopTimerActive && (millis() - equipmentStopTimerStart >= 10000)) {
+  // Auto-reset startupTimerActive efter 15 sekunder
+if (startupTimerActive && (millis() - startupTimerStart >= 15000)) {
+    digitalWrite(EQUIPMENT_GPIO_PIN, LOW);
+    startupTimerActive = false;
+    dbg_message("GPIO33 -> LOW (Startup timer ended after 15 sek)");
+}
+  // Auto-reset contactor_test_active efter 10 sekunder
+if (contactortestTimerActive && (millis() - contactortestTimerStart >= 10000)) {
   digitalWrite(EQUIPMENT_GPIO_PIN, LOW);
-  equipmentStopTimerActive = false;
+  contactortestTimerActive = false;
   dbg_message("GPIO33 -> LOW (Contactor test ended)");
 }
   if (datalayer.system.status.battery_allows_contactor_closing & !contactorMillis) {
@@ -348,8 +356,8 @@ if (equipmentStopTimerActive && (millis() - equipmentStopTimerStart >= 10000)) {
                   digitalWrite(EQUIPMENT_GPIO_PIN, HIGH);
                   dbg_message("GPIO33 -> HIGH (Contactor test start)");
                   send_kostal(ACK_FRAME, 8);  // ACK
-                  equipmentStopTimerStart = millis();
-                  equipmentStopTimerActive = true;
+                  contactortestTimerStart = millis();
+                  contactortestTimerActive = true;
                 } else if (frame_copy[7] == 0x00) {
                   // ERROR STATE, ACK sent
                   send_kostal(ACK_FRAME, 8);  // ACK
@@ -388,6 +396,13 @@ if (equipmentStopTimerActive && (millis() - equipmentStopTimerStart >= 10000)) {
                   dbg_message("inverter_allows_contactor_closing (battery_info) -> true");
                   digitalWrite(EQUIPMENT_GPIO_PIN, HIGH);
                   dbg_message("gpio_contactor_open");
+
+                  // Start 15 sek timer HVER GANG 0x84a modtages
+                  startupTimerStart = millis();
+                  startupTimerActive = true;
+                  dbg_message("startupTimerActive -> true (15 sek timer start)");
+
+                  // Kun første gang sættes startupMillis
                   if (!startupMillis) {
                     startupMillis = currentMillis;
                   }
