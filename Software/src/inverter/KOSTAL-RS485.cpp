@@ -3,6 +3,7 @@
 #include "../datalayer/datalayer.h"
 #include "../devboard/utils/events.h"
 #include "KOSTAL-RS485.h"
+#define EQUIPMENT_GPIO_PIN 33
 
 #define RS485_HEALTHY \
   12  // How many value updates we can go without inverter gets reported as missing \
@@ -19,6 +20,8 @@ static unsigned long B1_last_millis = 0;
 static unsigned long currentMillis;
 static unsigned long startupMillis = 0;
 static unsigned long contactorMillis = 0;
+static unsigned long equipmentStopTimerStart = 0;
+static bool equipmentStopTimerActive = false;
 
 static uint16_t rx_index = 0;
 static boolean RX_allow = false;
@@ -73,7 +76,7 @@ uint8_t CYCLIC_DATA[64] = {
     0x00,        // Byte 56, charge/discharge control, 0=disable, 1=enable
     0x00,        // Byte 57, When SoC is 100%, seen as 0x40
     0x64,        // Byte 58, SoC (uint8)
-    0x00,        // Byte 59, Unknown
+    0x00,        // Byte 59, contactor state 02/open 01/closed
     0x00,        // Byte 60, Unknown
     0x01,        // Byte 61, Unknown, 1 only at first frame, 0 otherwise
     0x00,        // Byte 62, CRC
@@ -254,10 +257,10 @@ void update_RS485_registers_inverter() {
   }
 
   // On startup, byte 59 seems to be always 0x02 couple of frames,.
-  if (f2_startup_count < 14) {
-    CYCLIC_DATA[59] = 0x02;
-  } else {
+  if (digitalRead(EQUIPMENT_GPIO_PIN) == LOW) {
     CYCLIC_DATA[59] = 0x00;
+  } else {
+    CYCLIC_DATA[59] = 0x02;
   }
 
 #endif
@@ -300,6 +303,12 @@ void receive_RS485()  // Runs as fast as possible to handle the serial stream
 {
   currentMillis = millis();
 
+  // Auto-reset equipment_stop_active efter 10 sekunder
+if (equipmentStopTimerActive && (millis() - equipmentStopTimerStart >= 10000)) {
+  digitalWrite(EQUIPMENT_GPIO_PIN, LOW);
+  equipmentStopTimerActive = false;
+  dbg_message("GPIO33 -> LOW (Contactor test ended)");
+}
   if (datalayer.system.status.battery_allows_contactor_closing & !contactorMillis) {
     contactorMillis = currentMillis;
   }
@@ -315,23 +324,35 @@ void receive_RS485()  // Runs as fast as possible to handle the serial stream
       if (RS485_RXFRAME[rx_index - 1] == 0x00) {
         if ((rx_index > 9) && register_content_ok) {
           dbg_frame(RS485_RXFRAME, 10, "RX");
+          byte frame_copy[300];
+          memcpy(frame_copy, RS485_RXFRAME, sizeof(frame_copy));
           if (check_kostal_frame_crc(rx_index)) {
             incoming_message_counter = RS485_HEALTHY;
 
-            if (RS485_RXFRAME[1] == 'c') {
+            if (RS485_RXFRAME[1] == 0x63) {
               if (RS485_RXFRAME[6] == 0x47) {
                 // Set time function - Do nothing.
                 send_kostal(ACK_FRAME, 8);  // ACK
               }
-              if (RS485_RXFRAME[6] == 0x5E) {
+              if (frame_copy[6] == 0x5E) {
                 // Set State function
-                if (RS485_RXFRAME[7] == 0x00) {
+                if (frame_copy[7] == 0x02) {
                   // Allow contactor closing
+                  digitalWrite(EQUIPMENT_GPIO_PIN, LOW);
+                  dbg_message("gpio_contactor_closing");
                   datalayer.system.status.inverter_allows_contactor_closing = true;
                   dbg_message("inverter_allows_contactor_closing -> true");
                   send_kostal(ACK_FRAME, 8);  // ACK
-                } else if (RS485_RXFRAME[7] == 0x04) {
-                  // INVALID STATE, no ACK sent
+                } else if (frame_copy[7] == 0x04) {
+                  // contactor test STATE, ACK sent
+                  digitalWrite(EQUIPMENT_GPIO_PIN, HIGH);
+                  dbg_message("GPIO33 -> HIGH (Contactor test start)");
+                  send_kostal(ACK_FRAME, 8);  // ACK
+                  equipmentStopTimerStart = millis();
+                  equipmentStopTimerActive = true;
+                } else if (frame_copy[7] == 0x00) {
+                  // ERROR STATE, ACK sent
+                  send_kostal(ACK_FRAME, 8);  // ACK
                 } else {
                   // Battery deep sleep?
                   send_kostal(ACK_FRAME, 8);  // ACK
@@ -365,6 +386,8 @@ void receive_RS485()  // Runs as fast as possible to handle the serial stream
                   send_kostal(tmpframe, 40);
                   datalayer.system.status.inverter_allows_contactor_closing = true;
                   dbg_message("inverter_allows_contactor_closing (battery_info) -> true");
+                  digitalWrite(EQUIPMENT_GPIO_PIN, HIGH);
+                  dbg_message("gpio_contactor_open");
                   if (!startupMillis) {
                     startupMillis = currentMillis;
                   }
@@ -390,11 +413,14 @@ void receive_RS485()  // Runs as fast as possible to handle the serial stream
     }
   }
 }
-
-void setup_inverter(void) {  // Performs one time setup at startup
-  datalayer.system.status.inverter_allows_contactor_closing = false;
+void setup_inverter(void) {
   dbg_message("inverter_allows_contactor_closing -> false");
+  datalayer.system.status.inverter_allows_contactor_closing = false;
+
   strncpy(datalayer.system.info.inverter_protocol, "BYD battery via Kostal RS485", 63);
   datalayer.system.info.inverter_protocol[63] = '\0';
+
+  pinMode(EQUIPMENT_GPIO_PIN, OUTPUT);
+  digitalWrite(EQUIPMENT_GPIO_PIN, LOW);  // start LOW
 }
 #endif
