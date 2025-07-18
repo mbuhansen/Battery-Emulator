@@ -252,16 +252,18 @@ void update_RS485_registers_inverter() {
   float2frame(CYCLIC_DATA, (float)datalayer.battery.status.current_dA / 10, 22);  // Should be Avg current(1s)
 
   // On startup, byte 56 seems to be always 0x00 couple of frames,.
-  if (f2_startup_count < 9) {
-    CYCLIC_DATA[56] = 0x00;
-  } else {
-    CYCLIC_DATA[56] = 0x01;
-  }
+ // if (f2_startup_count < 9) {
+ //   CYCLIC_DATA[56] = 0x00;
+ // } else {
+ //   CYCLIC_DATA[56] = 0x01;
+ // }
 
   // On startup, byte 59 seems to be always 0x02 couple of frames,.
   if (digitalRead(EQUIPMENT_GPIO_PIN) == LOW) {
+    CYCLIC_DATA[56] = 0x01;
     CYCLIC_DATA[59] = 0x00;
   } else {
+    CYCLIC_DATA[56] = 0x00;
     CYCLIC_DATA[59] = 0x02;
   }
 
