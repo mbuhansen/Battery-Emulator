@@ -114,7 +114,6 @@ static void dbg_timestamp(void) {
   logging.print("[");
   logging.print(millis());
   logging.print(" ms] ");
-  
 #endif 
 }
 
@@ -258,7 +257,7 @@ void update_RS485_registers_inverter() {
   //   CYCLIC_DATA[56] = 0x01;
   // }
 
-// On startup, byte 59 seems to be always 0x02 couple of frames,.
+  // On startup, byte 59 seems to be always 0x02 couple of frames,.
 #ifdef KOSTAL_SECONDARY_CONTACTOR
   if (digitalRead(SECONDARY_CONTACTOR_PIN) == LOW) {
     CYCLIC_DATA[56] = 0x01;
@@ -318,17 +317,26 @@ void receive_RS485()  // Runs as fast as possible to handle the serial stream
 
   // Auto-reset startupTimerActive efter 20 sekunder
   if (startupTimerActive && (millis() - startupTimerStart >= 20000)) {
-    digitalWrite(SECONDARY_CONTACTOR_PIN, LOW);
+    #ifdef SECONDARY_CONTACTOR_PIN
+      digitalWrite(SECONDARY_CONTACTOR_PIN, LOW);
+      dbg_message("GPIO33 -> LOW (Startup timer ended after 20 sek)");
+    #else
+      datalayer.system.status.inverter_allows_contactor_closing = true;
+    #endif
     datalayer.system.status.inverter_allows_contactor_closing = true;
-    dbg_message("inverter_allows_contactor_closing (battery_info) -> true");
+    dbg_message("inverter_allows_contactor_closing -> true (Startup timer ended after 20 sek)");
     startupTimerActive = false;
-    dbg_message("GPIO33 -> LOW (Startup timer ended after 20 sek)");
   }
   // Auto-reset contactor_test_active efter 5 sekunder
   if (contactortestTimerActive && (millis() - contactortestTimerStart >= 5000)) {
-    digitalWrite(SECONDARY_CONTACTOR_PIN, LOW);
+    #ifdef SECONDARY_CONTACTOR_PIN
+      digitalWrite(SECONDARY_CONTACTOR_PIN, LOW);
+      dbg_message("GPIO33 -> LOW (Contactor test ended)");
+    #else
+      datalayer.system.status.inverter_allows_contactor_closing = true;
+    #endif
+    dbg_message("inverter_allows_contactor_closing -> true (Contactor test ended)");
     contactortestTimerActive = false;
-    dbg_message("GPIO33 -> LOW (Contactor test ended)");
   }
   if (datalayer.system.status.battery_allows_contactor_closing & !contactorMillis) {
     contactorMillis = currentMillis;
@@ -359,15 +367,23 @@ void receive_RS485()  // Runs as fast as possible to handle the serial stream
                 // Set State function
                 if (frame_copy[7] == 0x02) {
                   // Allow contactor closing
-                  digitalWrite(SECONDARY_CONTACTOR_PIN, LOW);
-                  dbg_message("gpio_contactor_closing");
-                  datalayer.system.status.inverter_allows_contactor_closing = true;
-                  dbg_message("inverter_allows_contactor_closing -> true");
+                  #ifdef SECONDARY_CONTACTOR_PIN
+                    digitalWrite(SECONDARY_CONTACTOR_PIN, LOW);
+                    dbg_message("gpio_contactor_closing");
+                  #else
+                    datalayer.system.status.inverter_allows_contactor_closing = true;
+                    dbg_message("inverter_allows_contactor_closing -> true");
+                  #endif
                   send_kostal(ACK_FRAME, 8);  // ACK
                 } else if (frame_copy[7] == 0x04) {
                   // contactor test STATE, ACK sent
-                  digitalWrite(SECONDARY_CONTACTOR_PIN, HIGH);
-                  dbg_message("GPIO33 -> HIGH (Contactor test start)");
+                  #ifdef SECONDARY_CONTACTOR_PIN
+                    digitalWrite(SECONDARY_CONTACTOR_PIN, HIGH);
+                    dbg_message("GPIO33 -> HIGH (Contactor test start)");
+                  #else
+                    datalayer.system.status.inverter_allows_contactor_closing = false;
+                    dbg_message("inverter_allows_contactor_closing -> false");
+                  #endif
                   send_kostal(ACK_FRAME, 8);  // ACK
                   contactortestTimerStart = millis();
                   contactortestTimerActive = true;
@@ -405,8 +421,13 @@ void receive_RS485()  // Runs as fast as possible to handle the serial stream
                   tmpframe[38] = calculate_kostal_crc(tmpframe, 38);
                   null_stuffer(tmpframe, 40);
                   send_kostal(tmpframe, 40);
-                  digitalWrite(SECONDARY_CONTACTOR_PIN, HIGH);
-                  dbg_message("gpio_contactor_open");
+                  #ifdef SECONDARY_CONTACTOR_PIN
+                    digitalWrite(SECONDARY_CONTACTOR_PIN, HIGH);
+                    dbg_message("gpio_contactor_open");
+                  #else
+                    datalayer.system.status.inverter_allows_contactor_closing = false;
+                    dbg_message("inverter_allows_contactor_closing -> false");
+                  #endif
 
                   // Start 15 sek timer HVER GANG 0x84a modtages
                   startupTimerStart = millis();
@@ -445,8 +466,10 @@ void setup_inverter(void) {
 
   strncpy(datalayer.system.info.inverter_protocol, "BYD battery via Kostal RS485", 63);
   datalayer.system.info.inverter_protocol[63] = '\0';
-
-  pinMode(SECONDARY_CONTACTOR_PIN, OUTPUT);
-  digitalWrite(SECONDARY_CONTACTOR_PIN, LOW);  // start LOW
+  
+  #ifdef SECONDARY_CONTACTOR_PIN
+    pinMode(SECONDARY_CONTACTOR_PIN, OUTPUT);
+    digitalWrite(SECONDARY_CONTACTOR_PIN, LOW);  // start LOW
+  #endif
 }
 #endif
