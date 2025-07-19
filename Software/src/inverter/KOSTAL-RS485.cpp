@@ -250,13 +250,6 @@ void update_RS485_registers_inverter() {
   float2frame(CYCLIC_DATA, (float)datalayer.battery.status.current_dA / 10, 18);  // Last current
   float2frame(CYCLIC_DATA, (float)datalayer.battery.status.current_dA / 10, 22);  // Should be Avg current(1s)
 
-  // On startup, byte 56 seems to be always 0x00 couple of frames,.
-  // if (f2_startup_count < 9) {
-  //   CYCLIC_DATA[56] = 0x00;
-  // } else {
-  //   CYCLIC_DATA[56] = 0x01;
-  // }
-
   // On startup, byte 59 seems to be always 0x02 couple of frames,.
 #ifdef KOSTAL_SECONDARY_CONTACTOR
   if (digitalRead(SECONDARY_CONTACTOR_PIN) == LOW) {
