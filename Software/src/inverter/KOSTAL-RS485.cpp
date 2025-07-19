@@ -114,7 +114,7 @@ static void dbg_timestamp(void) {
   logging.print("[");
   logging.print(millis());
   logging.print(" ms] ");
-#endif 
+#endif
 }
 
 static void dbg_frame(byte* frame, int len, const char* prefix) {
