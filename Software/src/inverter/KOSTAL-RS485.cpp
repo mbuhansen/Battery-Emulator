@@ -251,11 +251,11 @@ void update_RS485_registers_inverter() {
   float2frame(CYCLIC_DATA, (float)datalayer.battery.status.current_dA / 10, 22);  // Should be Avg current(1s)
 
   // On startup, byte 56 seems to be always 0x00 couple of frames,.
- // if (f2_startup_count < 9) {
- //   CYCLIC_DATA[56] = 0x00;
- // } else {
- //   CYCLIC_DATA[56] = 0x01;
- // }
+  // if (f2_startup_count < 9) {
+  //   CYCLIC_DATA[56] = 0x00;
+  // } else {
+  //   CYCLIC_DATA[56] = 0x01;
+  // }
 
   // On startup, byte 59 seems to be always 0x02 couple of frames,.
   if (digitalRead(SECONDARY_CONTACTOR_PIN) == LOW) {
@@ -307,7 +307,7 @@ void receive_RS485()  // Runs as fast as possible to handle the serial stream
   currentMillis = millis();
 
   // Auto-reset startupTimerActive efter 20 sekunder
-if (startupTimerActive && (millis() - startupTimerStart >= 20000)) {
+  if (startupTimerActive && (millis() - startupTimerStart >= 20000)) {
     digitalWrite(SECONDARY_CONTACTOR_PIN, LOW);
     datalayer.system.status.inverter_allows_contactor_closing = true;
     dbg_message("inverter_allows_contactor_closing (battery_info) -> true");
@@ -315,11 +315,11 @@ if (startupTimerActive && (millis() - startupTimerStart >= 20000)) {
     dbg_message("GPIO33 -> LOW (Startup timer ended after 20 sek)");
 }
   // Auto-reset contactor_test_active efter 5 sekunder
-if (contactortestTimerActive && (millis() - contactortestTimerStart >= 5000)) {
-  digitalWrite(SECONDARY_CONTACTOR_PIN, LOW);
-  contactortestTimerActive = false;
-  dbg_message("GPIO33 -> LOW (Contactor test ended)");
-}
+ if (contactortestTimerActive && (millis() - contactortestTimerStart >= 5000)) {
+   digitalWrite(SECONDARY_CONTACTOR_PIN, LOW);
+   contactortestTimerActive = false;
+   dbg_message("GPIO33 -> LOW (Contactor test ended)");
+ }
   if (datalayer.system.status.battery_allows_contactor_closing & !contactorMillis) {
     contactorMillis = currentMillis;
   }
