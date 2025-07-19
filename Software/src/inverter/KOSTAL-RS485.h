@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include "../include.h"
 
+// Secondary contactor can be used if battery have can controlled contactor like BMW i3/Tesla (NC relay recommended) 
 #define KOSTAL_SECONDARY_CONTACTOR
 
 #define RS485_INVERTER_SELECTED
