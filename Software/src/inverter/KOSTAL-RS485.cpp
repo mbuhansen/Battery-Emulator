@@ -224,58 +224,58 @@ void update_RS485_registers_inverter() {
 
   float2frame(CYCLIC_DATA, (float)average_temperature_dC / 10, 14);
 
-#ifdef BMW_SBOX
-  float2frame(CYCLIC_DATA, (float)(datalayer.shunt.measured_amperage_mA / 100) / 10, 18);
-  float2frame(CYCLIC_DATA, (float)(datalayer.shunt.measured_avg1S_amperage_mA / 100) / 10, 22);
+  #ifdef BMW_SBOX
+    float2frame(CYCLIC_DATA, (float)(datalayer.shunt.measured_amperage_mA / 100) / 10, 18);
+    float2frame(CYCLIC_DATA, (float)(datalayer.shunt.measured_avg1S_amperage_mA / 100) / 10, 22);
 
-  if (datalayer.shunt.contactors_engaged) {
-    CYCLIC_DATA[59] = 0;
-  } else {
-    CYCLIC_DATA[59] = 2;
-  }
+    if (datalayer.shunt.contactors_engaged) {
+      CYCLIC_DATA[59] = 0;
+    } else {
+      CYCLIC_DATA[59] = 2;
+    }
 
-  if (datalayer.shunt.precharging || datalayer.shunt.contactors_engaged) {
-    CYCLIC_DATA[56] = 1;
-    float2frame(CYCLIC_DATA, (float)datalayer.battery.status.max_discharge_current_dA / 10,
-                26);  // Maximum discharge current
-    float2frame(CYCLIC_DATA, (float)datalayer.battery.status.max_charge_current_dA / 10, 34);  // Maximum charge current
-  } else {
-    CYCLIC_DATA[56] = 0;
-    float2frame(CYCLIC_DATA, 0.0, 26);
-    float2frame(CYCLIC_DATA, 0.0, 34);
-  }
+    if (datalayer.shunt.precharging || datalayer.shunt.contactors_engaged) {
+      CYCLIC_DATA[56] = 1;
+      float2frame(CYCLIC_DATA, (float)datalayer.battery.status.max_discharge_current_dA / 10,
+                  26);  // Maximum discharge current
+      float2frame(CYCLIC_DATA, (float)datalayer.battery.status.max_charge_current_dA / 10, 34);  // Maximum charge current
+    } else {
+      CYCLIC_DATA[56] = 0;
+      float2frame(CYCLIC_DATA, 0.0, 26);
+      float2frame(CYCLIC_DATA, 0.0, 34);
+    }
 
-#else
+  #else
 
-  float2frame(CYCLIC_DATA, (float)datalayer.battery.status.current_dA / 10, 18);  // Last current
-  float2frame(CYCLIC_DATA, (float)datalayer.battery.status.current_dA / 10, 22);  // Should be Avg current(1s)
+    float2frame(CYCLIC_DATA, (float)datalayer.battery.status.current_dA / 10, 18);  // Last current
+    float2frame(CYCLIC_DATA, (float)datalayer.battery.status.current_dA / 10, 22);  // Should be Avg current(1s)
 
-    // On startup, byte 56 seems to be always 0x00 couple of frames,.
-  // if (f2_startup_count < 9) {
-  //   CYCLIC_DATA[56] = 0x00;
-  // } else {
-  //   CYCLIC_DATA[56] = 0x01;
-  // }
+      // On startup, byte 56 seems to be always 0x00 couple of frames,.
+    // if (f2_startup_count < 9) {
+    //   CYCLIC_DATA[56] = 0x00;
+    // } else {
+    //   CYCLIC_DATA[56] = 0x01;
+    // }
 
-  // On startup, byte 59 seems to be always 0x02 couple of frames,.
-#endif
-#ifdef KOSTAL_SECONDARY_CONTACTOR
-  if (digitalRead(SECONDARY_CONTACTOR_PIN) == LOW) {
-    CYCLIC_DATA[56] = 0x01;
-    CYCLIC_DATA[59] = 0x00;
-  } else {
-    CYCLIC_DATA[56] = 0x00;
-    CYCLIC_DATA[59] = 0x02;
-  }
-#else
-  if (datalayer.system.status.inverter_allows_contactor_closing) {
-    CYCLIC_DATA[56] = 0x01;
-    CYCLIC_DATA[59] = 0x00;
-  } else {
-    CYCLIC_DATA[56] = 0x00;
-    CYCLIC_DATA[59] = 0x02;
-  }
-#endif
+    // On startup, byte 59 seems to be always 0x02 couple of frames,.
+    #ifdef KOSTAL_SECONDARY_CONTACTOR
+      if (digitalRead(SECONDARY_CONTACTOR_PIN) == LOW) {
+        CYCLIC_DATA[56] = 0x01;
+        CYCLIC_DATA[59] = 0x00;
+      } else {
+        CYCLIC_DATA[56] = 0x00;
+        CYCLIC_DATA[59] = 0x02;
+      }
+    #else
+      if (datalayer.system.status.inverter_allows_contactor_closing) {
+        CYCLIC_DATA[56] = 0x01;
+        CYCLIC_DATA[59] = 0x00;
+      } else {
+        CYCLIC_DATA[56] = 0x00;
+        CYCLIC_DATA[59] = 0x02;
+      }
+    #endif
+  #endif
 
   float2frame(CYCLIC_DATA, (float)datalayer.battery.status.max_discharge_current_dA / 10, 26);
 
