@@ -320,7 +320,7 @@ void receive_RS485()  // Runs as fast as possible to handle the serial stream
     dbg_message("inverter_allows_contactor_closing -> true (Startup timer ended after 20 sek)");
     startupTimerActive = false;
   }
-  // Auto-reset contactor_test_active efter 5 sekunder
+  // Auto-reset contactor_test_active after 5 seconds
   if (contactortestTimerActive && (millis() - contactortestTimerStart >= 5000)) {
 #ifdef SECONDARY_CONTACTOR_PIN
     digitalWrite(SECONDARY_CONTACTOR_PIN, LOW);
@@ -422,12 +422,11 @@ void receive_RS485()  // Runs as fast as possible to handle the serial stream
                   dbg_message("inverter_allows_contactor_closing -> false");
 #endif
 
-                  // Start 15 sek timer HVER GANG 0x84a modtages
+                  // Start 20 sek timer every time 0x84a received
                   startupTimerStart = millis();
                   startupTimerActive = true;
-                  dbg_message("startupTimerActive -> true (15 sek timer start)");
+                  dbg_message("startupTimerActive -> true (20 sek timer start)");
 
-                  // Kun første gang sættes startupMillis
                   if (!startupMillis) {
                     startupMillis = currentMillis;
                   }
