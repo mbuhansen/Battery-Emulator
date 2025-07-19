@@ -114,6 +114,7 @@ static void dbg_timestamp(void) {
   logging.print("[");
   logging.print(millis());
   logging.print(" ms] ");
+  
 #endif 
 }
 
@@ -257,7 +258,7 @@ void update_RS485_registers_inverter() {
   //   CYCLIC_DATA[56] = 0x01;
   // }
 
-  // On startup, byte 59 seems to be always 0x02 couple of frames,.
+// On startup, byte 59 seems to be always 0x02 couple of frames,.
 #ifdef KOSTAL_SECONDARY_CONTACTOR
   if (digitalRead(SECONDARY_CONTACTOR_PIN) == LOW) {
     CYCLIC_DATA[56] = 0x01;
