@@ -3,7 +3,6 @@
 #include "../datalayer/datalayer.h"
 #include "../devboard/utils/events.h"
 #include "KOSTAL-RS485.h"
-#define SECONDARY_CONTACTOR_PIN 33
 
 #define RS485_HEALTHY \
   12  // How many value updates we can go without inverter gets reported as missing \
