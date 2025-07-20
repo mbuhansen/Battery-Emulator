@@ -308,16 +308,16 @@ void receive_RS485()  // Runs as fast as possible to handle the serial stream
 {
   currentMillis = millis();
 
-  // Auto-reset startupTimerActive efter 20 sekunder
+  // Auto-reset startupTimerActive after 20 seconds
   if (startupTimerActive && (millis() - startupTimerStart >= 20000)) {
 #ifdef SECONDARY_CONTACTOR_PIN
     digitalWrite(SECONDARY_CONTACTOR_PIN, LOW);
-    dbg_message("GPIO33 -> LOW (Startup timer ended after 20 sek)");
+    dbg_message("GPIO33 -> LOW (Startup timer ended after 20 sec)");
 #else
     datalayer.system.status.inverter_allows_contactor_closing = true;
 #endif
     datalayer.system.status.inverter_allows_contactor_closing = true;
-    dbg_message("inverter_allows_contactor_closing -> true (Startup timer ended after 20 sek)");
+    dbg_message("inverter_allows_contactor_closing -> true (Startup timer ended after 20 sec)");
     startupTimerActive = false;
   }
   // Auto-reset contactor_test_active after 5 seconds
