@@ -11,6 +11,12 @@
 #include "../utils/events.h"
 #include "../utils/timer.h"
 #include "mqtt_client.h"
+#include "../../inverter/KOSTAL-RS485.h"
+
+#ifdef KOSTAL_SECONDARY_CONTACTOR
+void set_ha_gpio_high();
+void set_ha_gpio_low();
+#endif
 
 esp_mqtt_client_config_t mqtt_cfg;
 esp_mqtt_client_handle_t client;
@@ -81,6 +87,7 @@ SensorConfig sensorConfigTemplate[] = {
     {"remaining_capacity_real", "Battery Remaining Capacity (real)", "", "Wh", "energy"},
     {"max_discharge_power", "Battery Max Discharge Power", "", "W", "power"},
     {"max_charge_power", "Battery Max Charge Power", "", "W", "power"},
+    {"gpio33_output_state", "GPIO33 Output State", "", "", ""},
 #if defined(MEB_BATTERY) || defined(TESLA_BATTERY)
     {"charged_energy", "Battery Charged Energy", "", "Wh", "energy"},
     {"discharged_energy", "Battery Discharged Energy", "", "Wh", "energy"},
@@ -113,11 +120,17 @@ void create_sensor_configs() {
   }
 }
 
-SensorConfig buttonConfigs[] = {{"BMSRESET", "Reset BMS"},
-                                {"PAUSE", "Pause charge/discharge"},
-                                {"RESUME", "Resume charge/discharge"},
-                                {"RESTART", "Restart Battery Emulator"},
-                                {"STOP", "Open Contactors"}};
+SensorConfig buttonConfigs[] = {
+  {"BMSRESET", "Reset BMS"},
+  {"PAUSE", "Pause charge/discharge"},
+  {"RESUME", "Resume charge/discharge"},
+  {"RESTART", "Restart Battery Emulator"},
+  {"STOP", "Open Contactors"},
+#ifdef KOSTAL_SECONDARY_CONTACTOR
+  {"GPIO33_ON", "Secondary Contactor open"},
+  {"GPIO33_OFF", "Secondary Contactor close"},
+#endif
+};
 
 static String generateCommonInfoAutoConfigTopic(const char* object_id) {
   return "homeassistant/sensor/" + topic_name + "/" + String(object_id) + "/config";
@@ -226,6 +239,9 @@ static bool publish_common_info(void) {
 #endif  // HA_AUTODISCOVERY
     doc["bms_status"] = getBMSStatus(datalayer.battery.status.bms_status);
     doc["pause_status"] = get_emulator_pause_status();
+#ifdef KOSTAL_SECONDARY_CONTACTOR
+    doc["gpio33_output_state"] = digitalRead(33);
+#endif
 
     //only publish these values if BMS is active and we are comunication  with the battery (can send CAN messages to the battery)
     if (datalayer.battery.status.CAN_battery_still_alive && allowed_to_send_CAN && millis() > BOOTUP_TIME) {
@@ -484,6 +500,15 @@ void mqtt_message_received(char* topic_raw, int topic_len, char* data, int data_
   if (strcmp(topic, generateButtonTopic("STOP").c_str()) == 0) {
     setBatteryPause(true, false, true);
   }
+
+#ifdef KOSTAL_SECONDARY_CONTACTOR
+  if (strcmp(topic, generateButtonTopic("GPIO33_ON").c_str()) == 0) {
+    set_ha_gpio_high();
+  }
+  if (strcmp(topic, generateButtonTopic("GPIO33_OFF").c_str()) == 0) {
+    set_ha_gpio_low();
+  }
+#endif
 }
 
 static void mqtt_event_handler(void* handler_args, esp_event_base_t base, int32_t event_id, void* event_data) {
@@ -584,3 +609,21 @@ bool mqtt_publish(const char* topic, const char* mqtt_msg, bool retain) {
   int msg_id = esp_mqtt_client_publish(client, topic, mqtt_msg, strlen(mqtt_msg), MQTT_QOS, retain);
   return msg_id > -1;
 }
+
+#ifdef KOSTAL_SECONDARY_CONTACTOR
+#define HA_GPIO_PIN 33
+void set_ha_gpio_high() { 
+    pinMode(HA_GPIO_PIN, OUTPUT); 
+    digitalWrite(HA_GPIO_PIN, HIGH);  
+#ifdef DEBUG_LOG
+    logging.println("GPIO33 set HIGH via MQTT");
+#endif
+}
+void set_ha_gpio_low()  { 
+    pinMode(HA_GPIO_PIN, OUTPUT); 
+    digitalWrite(HA_GPIO_PIN, LOW);   
+#ifdef DEBUG_LOG
+    logging.println("GPIO33 set LOW via MQTT");
+#endif
+}
+#endif
