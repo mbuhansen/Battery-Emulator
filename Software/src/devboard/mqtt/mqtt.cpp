@@ -7,11 +7,11 @@
 #include "../../battery/BATTERIES.h"
 #include "../../communication/contactorcontrol/comm_contactorcontrol.h"
 #include "../../datalayer/datalayer.h"
+#include "../../inverter/KOSTAL-RS485.h"
 #include "../../lib/bblanchon-ArduinoJson/ArduinoJson.h"
 #include "../utils/events.h"
 #include "../utils/timer.h"
 #include "mqtt_client.h"
-#include "../../inverter/KOSTAL-RS485.h"
 
 #ifdef KOSTAL_SECONDARY_CONTACTOR
 void set_ha_gpio_high();
@@ -121,14 +121,14 @@ void create_sensor_configs() {
 }
 
 SensorConfig buttonConfigs[] = {
-  {"BMSRESET", "Reset BMS"},
-  {"PAUSE", "Pause charge/discharge"},
-  {"RESUME", "Resume charge/discharge"},
-  {"RESTART", "Restart Battery Emulator"},
-  {"STOP", "Open Contactors"},
+    {"BMSRESET", "Reset BMS"},
+    {"PAUSE", "Pause charge/discharge"},
+    {"RESUME", "Resume charge/discharge"},
+    {"RESTART", "Restart Battery Emulator"},
+    {"STOP", "Open Contactors"},
 #ifdef KOSTAL_SECONDARY_CONTACTOR
-  {"GPIO33_ON", "Secondary Contactor open"},
-  {"GPIO33_OFF", "Secondary Contactor close"},
+    {"GPIO33_ON", "Secondary Contactor open"},
+    {"GPIO33_OFF", "Secondary Contactor close"},
 #endif
 };
 
@@ -612,18 +612,18 @@ bool mqtt_publish(const char* topic, const char* mqtt_msg, bool retain) {
 
 #ifdef KOSTAL_SECONDARY_CONTACTOR
 #define HA_GPIO_PIN 33
-void set_ha_gpio_high() { 
-    pinMode(HA_GPIO_PIN, OUTPUT); 
-    digitalWrite(HA_GPIO_PIN, HIGH);  
+void set_ha_gpio_high() {
+  pinMode(HA_GPIO_PIN, OUTPUT);
+  digitalWrite(HA_GPIO_PIN, HIGH);
 #ifdef DEBUG_LOG
-    logging.println("GPIO33 set HIGH via MQTT");
+  logging.println("GPIO33 set HIGH via MQTT");
 #endif
 }
-void set_ha_gpio_low()  { 
-    pinMode(HA_GPIO_PIN, OUTPUT); 
-    digitalWrite(HA_GPIO_PIN, LOW);   
+void set_ha_gpio_low() {
+  pinMode(HA_GPIO_PIN, OUTPUT);
+  digitalWrite(HA_GPIO_PIN, LOW);
 #ifdef DEBUG_LOG
-    logging.println("GPIO33 set LOW via MQTT");
+  logging.println("GPIO33 set LOW via MQTT");
 #endif
 }
 #endif
