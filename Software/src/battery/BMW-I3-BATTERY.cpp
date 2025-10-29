@@ -310,7 +310,7 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
       } else {
         BMW_10B.data.u8[1] = 0x00;  // Keep contactors open when inverter doesn't allow
       }
-      
+
       BMW_10B.data.u8[1] = ((BMW_10B.data.u8[1] & 0xF0) + alive_counter_20ms);
       BMW_10B.data.u8[0] = calculateCRC(BMW_10B, 3, 0x3F);
 
