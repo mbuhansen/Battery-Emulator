@@ -3,6 +3,8 @@
 #include <stdint.h>
 #include "Rs485InverterProtocol.h"
 
+#define SECONDARY_CONTACTOR_PIN 33
+
 class KostalInverterProtocol : public Rs485InverterProtocol {
  public:
   const char* name() override { return Name; }
@@ -30,8 +32,10 @@ class KostalInverterProtocol : public Rs485InverterProtocol {
   unsigned long currentMillis;
   unsigned long startupMillis = 0;
   unsigned long contactorMillis = 0;
-  unsigned long contactortestTimerStart = 0;
-  bool contactortestTimerActive = false;
+  unsigned long contactorcloseTimerStart = 0;
+  bool contactorcloseTimerActive = false;
+  unsigned long startupTimerStart = 0;
+  bool startupTimerActive = false;
 
   uint16_t rx_index = 0;
   bool RX_allow = false;
