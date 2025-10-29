@@ -173,9 +173,9 @@ void update_calculated_values(unsigned long currentMillis) {
   if (datalayer.battery.status.voltage_dV > 10) {
     // Only update value when we have voltage available to avoid div0. TODO: This should be based on nominal voltage
     datalayer.battery.status.max_charge_current_dA =
-        ((datalayer.battery.status.max_charge_power_W * 100) / datalayer.battery.status.voltage_dV);
+        ((datalayer.battery.status.max_charge_power_W * 180) / datalayer.battery.status.voltage_dV);
     datalayer.battery.status.max_discharge_current_dA =
-        ((datalayer.battery.status.max_discharge_power_W * 100) / datalayer.battery.status.voltage_dV);
+        ((datalayer.battery.status.max_discharge_power_W * 180) / datalayer.battery.status.voltage_dV);
   }
 
   /* Apply remote restrictions if set*/
