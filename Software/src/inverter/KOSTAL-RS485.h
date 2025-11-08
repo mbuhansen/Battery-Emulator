@@ -30,8 +30,11 @@ class KostalInverterProtocol : public Rs485InverterProtocol {
   unsigned long currentMillis;
   unsigned long startupMillis = 0;
   unsigned long contactorMillis = 0;
-  unsigned long contactortestTimerStart = 0;
-  bool contactortestTimerActive = false;
+  unsigned long startupTimerStart = 0;
+  bool startupTimerActive = false;
+  unsigned long contactorcloseTimerStart = 0;
+  bool contactorcloseTimerActive = false;
+  bool pendingContactorCloseRequest = false;
 
   uint16_t rx_index = 0;
   bool RX_allow = false;
