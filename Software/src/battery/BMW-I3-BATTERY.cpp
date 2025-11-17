@@ -4,6 +4,7 @@
 #include "../datalayer/datalayer.h"
 #include "../datalayer/datalayer_extended.h"
 #include "../devboard/utils/events.h"
+#include "../devboard/utils/logging.h"
 
 /* Do not change code below unless you are sure what you are doing */
 
@@ -39,6 +40,173 @@ uint8_t BmwI3Battery::increment_alive_counter(uint8_t counter) {
     counter = 0;
   }
   return counter;
+}
+
+// UDS Multi-Frame Reception Helper Functions
+void BmwI3Battery::startUDSMultiFrameReception(uint16_t totalLength, uint8_t moduleID) {
+  gUDSContext.UDS_inProgress = true;
+  gUDSContext.UDS_expectedLength = totalLength;
+  gUDSContext.UDS_bytesReceived = 0;
+  gUDSContext.UDS_sequenceNumber = 1;  // Next expected sequence is 1
+  gUDSContext.UDS_moduleID = moduleID;
+  memset(gUDSContext.UDS_buffer, 0, sizeof(gUDSContext.UDS_buffer));
+  gUDSContext.UDS_lastFrameMillis = millis();  // Track timeout
+}
+
+bool BmwI3Battery::storeUDSPayload(const uint8_t* payload, uint8_t length) {
+  if (gUDSContext.UDS_bytesReceived + length > sizeof(gUDSContext.UDS_buffer)) {
+    gUDSContext.UDS_inProgress = false;
+    return false;
+  }
+
+  memcpy(&gUDSContext.UDS_buffer[gUDSContext.UDS_bytesReceived], payload, length);
+  gUDSContext.UDS_bytesReceived += length;
+  gUDSContext.UDS_lastFrameMillis = millis();
+
+  // If we've reached or exceeded the expected length, mark complete
+  if (gUDSContext.UDS_bytesReceived >= gUDSContext.UDS_expectedLength) {
+    gUDSContext.UDS_inProgress = false;
+  }
+  return true;
+}
+
+bool BmwI3Battery::isUDSMessageComplete() {
+  return (!gUDSContext.UDS_inProgress && gUDSContext.UDS_bytesReceived > 0);
+}
+
+void BmwI3Battery::parseDTCResponse() {
+  // Check for negative response
+  if (gUDSContext.UDS_buffer[0] == 0x7F) {
+    dtc_data->dtc_read_failed = true;
+    dtc_data->dtc_read_in_progress = false;
+    return;
+  }
+
+  if (gUDSContext.UDS_buffer[0] != 0x59 || gUDSContext.UDS_buffer[1] != 0x02) {
+    dtc_data->dtc_read_failed = true;
+    dtc_data->dtc_read_in_progress = false;
+    return;
+  }
+
+  int dtcStartIndex = 3;  // Skip 59 02 FF
+  int availableBytes = gUDSContext.UDS_bytesReceived - dtcStartIndex;
+  int maxDtcCount = availableBytes / 4;
+
+  if (maxDtcCount > 32) {
+    maxDtcCount = 32;
+  }
+
+  int validDtcCount = 0;  // Track actual valid DTCs
+
+  for (int i = 0; i < maxDtcCount; i++) {
+    int offset = dtcStartIndex + (i * 4);
+
+    // Bounds check
+    if (offset + 3 > gUDSContext.UDS_bytesReceived) {
+      break;
+    }
+
+    // Combine 3 bytes into single uint32
+    uint32_t dtcCode = ((uint32_t)gUDSContext.UDS_buffer[offset] << 16) |
+                       ((uint32_t)gUDSContext.UDS_buffer[offset + 1] << 8) |
+                       (uint32_t)gUDSContext.UDS_buffer[offset + 2];
+
+    uint8_t dtcStatus = gUDSContext.UDS_buffer[offset + 3];
+
+    // Skip invalid DTCs (0x000000 or status 0x00)
+    if (dtcCode == 0x000000 || dtcStatus == 0x00) {
+      continue;  // Don't store this one
+    }
+
+    // Store valid DTC
+    dtc_data->dtc_codes[validDtcCount] = dtcCode;
+    dtc_data->dtc_status[validDtcCount] = dtcStatus;
+
+    validDtcCount++;  // Increment only for valid DTCs
+  }
+
+  dtc_data->dtc_count = validDtcCount;  // Store actual count
+
+  dtc_data->dtc_last_read_millis = millis();
+  dtc_data->dtc_read_failed = false;
+  dtc_data->dtc_read_in_progress = false;
+}
+
+void BmwI3Battery::handleISOTPFrame(CAN_frame& rx_frame) {
+  uint8_t pciByte = rx_frame.data.u8[1];  // e.g., 0x10, 0x21, etc.
+  uint8_t pciType = pciByte >> 4;         // top nibble => 0=SF,1=FF,2=CF,3=FC
+
+  // Only process multi-frame ISO-TP messages (FF and CF)
+  // Single-frame messages are handled directly in case 0x607
+  if (pciType != 0x1 && pciType != 0x2) {
+    return;  // Not a multi-frame message we care about
+  }
+
+  switch (pciType) {
+    case 0x1: {
+      // First Frame (FF)
+      uint8_t pciLower = pciByte & 0x0F;
+      uint16_t totalLength = ((uint16_t)pciLower << 8) | rx_frame.data.u8[2];
+
+      uint8_t serviceResponse = rx_frame.data.u8[3];  // Service response byte (0x59, etc.)
+      uint8_t moduleID;
+
+      // Determine which byte to use for module ID based on service response
+      if (serviceResponse == 0x59) {
+        // Standard UDS DTC response (0x19 -> 0x59)
+        // Use sub-function byte as module ID
+        moduleID = rx_frame.data.u8[4];  // 0x02 for reportDTCByStatusMask
+      } else {
+        // Other responses - use default
+        moduleID = serviceResponse;
+      }
+
+      // Start the multi-frame reception
+      startUDSMultiFrameReception(totalLength, moduleID);
+      gUDSContext.receivedInBatch = 0;  // Reset batch count
+
+      // Store the FF payload (starts at data[3] for extended addressing)
+      const uint8_t* ffPayload = &rx_frame.data.u8[3];
+      uint8_t ffPayloadSize = rx_frame.DLC - 3;
+      storeUDSPayload(ffPayload, ffPayloadSize);
+
+      // Request continuation
+      transmit_can_frame(&BMW_6F1_CONTINUE);
+      break;
+    }
+
+    case 0x2: {
+      // Consecutive Frame (CF)
+      if (!gUDSContext.UDS_inProgress) {
+        logging.println("Unexpected CF - not in progress");
+        return;  // Unexpected CF, ignore
+      }
+
+      // Store CF payload (starts at byte 2)
+      storeUDSPayload(&rx_frame.data.u8[2], rx_frame.DLC - 2);
+
+      // Increment batch counter
+      gUDSContext.receivedInBatch++;
+
+      // Check if batch is complete (i3 uses 2 frames per batch based on 0x30 0x00 0x02)
+      if (gUDSContext.receivedInBatch >= 2) {
+        transmit_can_frame(&BMW_6F1_CONTINUE);
+        gUDSContext.receivedInBatch = 0;
+      }
+      break;
+    }
+  }
+}
+
+void BmwI3Battery::processCompletedUDSResponse() {
+  // Route based on moduleID (set during First Frame reception)
+  if (gUDSContext.UDS_moduleID == 0x02) {
+    // DTC Response (0x19 0x02 -> 0x59 0x02)
+    parseDTCResponse();
+  }
+
+  // Reset buffer after processing
+  gUDSContext.UDS_bytesReceived = 0;
 }
 
 void BmwI3Battery::update_values() {  //This function maps all the values fetched via CAN to the battery datalayer
@@ -287,6 +455,29 @@ void BmwI3Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
             break;
         }
       }
+
+      // Handle single-frame DTC response (service 0x59)
+      if (rx_frame.data.u8[2] == 0x59 && rx_frame.data.u8[3] == 0x02) {
+        // Single-frame DTC response: F1 0X 59 02 FF [DTCs...]
+        uint8_t sfLength = rx_frame.data.u8[1];  // Length byte
+        if (sfLength > 0 && sfLength <= (rx_frame.DLC - 2)) {
+          // Copy response data starting from byte 2 (service ID)
+          memcpy(gUDSContext.UDS_buffer, &rx_frame.data.u8[2], sfLength);
+          gUDSContext.UDS_bytesReceived = sfLength;
+          gUDSContext.UDS_moduleID = 0x02;  // DTC response
+          gUDSContext.UDS_inProgress = false;
+
+          parseDTCResponse();
+        }
+      }
+
+      // Handle ISO-TP multi-frame messages
+      handleISOTPFrame(rx_frame);
+
+      // Check if complete UDS response is ready to process
+      if (isUDSMessageComplete()) {
+        processCompletedUDSResponse();
+      }
       break;
     default:
       break;
@@ -294,6 +485,29 @@ void BmwI3Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
 }
 
 void BmwI3Battery::transmit_can(unsigned long currentMillis) {
+  // Timeout check for stuck UDS transfers
+  if (gUDSContext.UDS_inProgress) {
+    if (currentMillis - gUDSContext.UDS_lastFrameMillis > 2000) {  // 2 second timeout
+      gUDSContext.UDS_inProgress = false;
+      gUDSContext.UDS_bytesReceived = 0;
+    }
+  }
+
+  // Handle user DTC read request (checked even when not awake)
+  if (UserRequestDTCRead) {
+    transmit_can_frame(&BMW_6F1_REQUEST_READ_DTC);
+    UserRequestDTCRead = false;
+
+    // Set flags in datalayer for HTML renderer
+    dtc_data->dtc_read_in_progress = true;
+    dtc_data->dtc_read_failed = false;
+  }
+
+  // Handle user DTC reset request (checked even when not awake)
+  if (UserRequestDTCreset) {
+    transmit_can_frame(&BMW_6F1_REQUEST_CLEAR_DTC);
+    UserRequestDTCreset = false;
+  }
 
   if (battery_awake) {
     //Send 20ms message

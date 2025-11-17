@@ -2,9 +2,22 @@
 #define BMW_I3_BATTERY_H
 
 #include "../datalayer/datalayer.h"
+#include "../datalayer/datalayer_extended.h"
 #include "../devboard/hal/hal.h"
 #include "BMW-I3-HTML.h"
 #include "CanBattery.h"
+
+// UDS Multi-Frame Reception Context
+struct UDS_CONTEXT_I3 {
+  uint8_t UDS_buffer[512];            // Buffer to store multi-frame UDS data
+  uint16_t UDS_bytesReceived;         // Track number of bytes received
+  uint16_t UDS_expectedLength;        // Total expected length from first frame
+  uint8_t UDS_sequenceNumber;         // Expected sequence number for consecutive frames
+  bool UDS_inProgress;                // Flag indicating if we're in the middle of receiving
+  uint8_t UDS_moduleID;               // Module ID responding (0x02 for DTC)
+  uint8_t receivedInBatch;            // Number of CFs received in current batch
+  unsigned long UDS_lastFrameMillis;  // Timestamp of last frame for timeout detection
+};
 
 class BmwI3Battery : public CanBattery {
  public:
@@ -16,6 +29,7 @@ class BmwI3Battery : public CanBattery {
     contactor_closing_allowed = contactor_closing_allowed_ptr;
     allows_contactor_closing = nullptr;
     wakeup_pin = wakeup;
+    dtc_data = &datalayer_extended.bmwi3_2;  // Use second battery DTC storage
 
     //Init voltage to 0 to allow contactor check to operate without fear of default values colliding
     battery_volts = 0;
@@ -27,6 +41,7 @@ class BmwI3Battery : public CanBattery {
     allows_contactor_closing = &datalayer.system.status.battery_allows_contactor_closing;
     contactor_closing_allowed = nullptr;
     wakeup_pin = esp32hal->WUP_PIN1();
+    dtc_data = &datalayer_extended.bmwi3;  // Use first battery DTC storage
   }
 
   virtual void setup(void);
@@ -34,6 +49,12 @@ class BmwI3Battery : public CanBattery {
   virtual void update_values();
   virtual void transmit_can(unsigned long currentMillis);
   static constexpr const char* Name = "BMW i3";
+
+  // DTC support functions
+  bool supports_read_DTC() { return true; }
+  void read_DTC() { UserRequestDTCRead = true; }
+  bool supports_reset_DTC() { return true; }
+  void reset_DTC() { UserRequestDTCreset = true; }
 
   // SOC% raw battery value. Might not always reach 100%
   uint16_t SOC_raw() { return (battery_HVBatt_SOC * 10); }
@@ -62,6 +83,9 @@ class BmwI3Battery : public CanBattery {
   // Status cold shutoff valve, 0 OK, 1 Short circuit to GND, 2 Short circuit to 12V, 3 Line break, 6 Driver error, 12 Stuck, 13 Stuck, 15 Invalid Signal
   uint8_t ST_cold_shutoff_valve() { return battery_status_cold_shutoff_valve; }
 
+  // Getter for DTC data pointer (for HTML renderer)
+  DATALAYER_INFO_BMWI3* get_dtc_data() { return dtc_data; }
+
   BatteryHtmlRenderer& get_status_renderer() { return renderer; }
 
  private:
@@ -84,6 +108,9 @@ class BmwI3Battery : public CanBattery {
   const int NUMBER_OF_CELLS = 96;
 
   DATALAYER_BATTERY_TYPE* datalayer_battery;
+
+  // Pointer to DTC data (either bmwi3 or bmwi3_2 depending on which battery this is)
+  DATALAYER_INFO_BMWI3* dtc_data;
 
   // If not null, this battery decides when the contactor can be closed and writes the value here.
   bool* allows_contactor_closing;
@@ -279,6 +306,17 @@ class BmwI3Battery : public CanBattery {
                                                  .DLC = 4,
                                                  .ID = 0x6F1,
                                                  .data = {0x07, 0x30, 0x00, 0x02}};
+  // UDS DTC requests for BMW i3 (using 0x6F1)
+  static constexpr CAN_frame BMW_6F1_REQUEST_READ_DTC = {.FD = false,
+                                                         .ext_ID = false,
+                                                         .DLC = 5,
+                                                         .ID = 0x6F1,
+                                                         .data = {0x07, 0x03, 0x19, 0x02, 0xFF}};
+  static constexpr CAN_frame BMW_6F1_REQUEST_CLEAR_DTC = {.FD = false,
+                                                          .ext_ID = false,
+                                                          .DLC = 3,
+                                                          .ID = 0x6F1,
+                                                          .data = {0x07, 0x01, 0x14}};
   CAN_frame BMW_6F4_CELL_VOLTAGE_CELLNO = {.FD = false,
                                            .ext_ID = false,
                                            .DLC = 7,
@@ -383,6 +421,19 @@ class BmwI3Battery : public CanBattery {
   uint8_t message_data[50];
   uint8_t next_data = 0;
   uint8_t current_cell_polled = 0;
+
+  // DTC handling
+  bool UserRequestDTCRead = false;
+  bool UserRequestDTCreset = false;
+  UDS_CONTEXT_I3 gUDSContext;
+
+  // DTC helper functions
+  void startUDSMultiFrameReception(uint16_t totalLength, uint8_t moduleID);
+  bool storeUDSPayload(const uint8_t* payload, uint8_t length);
+  bool isUDSMessageComplete();
+  void parseDTCResponse();
+  void handleISOTPFrame(CAN_frame& rx_frame);
+  void processCompletedUDSResponse();
 };
 
 #endif
