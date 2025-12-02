@@ -124,6 +124,19 @@ const char* name_for_button_type(STOP_BUTTON_BEHAVIOR behavior) {
   }
 }
 
+const char* name_for_gpioopt1(GPIOOPT1 option) {
+  switch (option) {
+    case GPIOOPT1::DEFAULT_OPT:
+      return "WUP1 / WUP2";
+    case GPIOOPT1::I2C_DISPLAY_SSD1306:
+      return "I2C Display (SSD1306)";
+    case GPIOOPT1::ESTOP_BMS_POWER:
+      return "E-Stop / BMS Power";
+    default:
+      return nullptr;
+  }
+}
+
 // Special unicode characters
 const char* TRUE_CHAR_CODE = "\u2713";   //&#10003";
 const char* FALSE_CHAR_CODE = "\u2715";  //&#10005";
@@ -209,6 +222,11 @@ String settings_processor(const String& var, BatteryEmulatorSettingsStore& setti
 
   if (var == "LEDMODE") {
     return options_from_map(settings.getUInt("LEDMODE", 0), led_modes);
+  }
+
+  if (var == "GPIOOPT1") {
+    return options_for_enum_with_none((GPIOOPT1)settings.getUInt("GPIOOPT1", (int)GPIOOPT1::DEFAULT_OPT),
+                                      name_for_gpioopt1, GPIOOPT1::DEFAULT_OPT);
   }
 
   // All other values are wrapped by html_escape to avoid HTML injection.
@@ -308,6 +326,10 @@ String raw_settings_processor(const String& var, BatteryEmulatorSettingsStore& s
 
   if (var == "CNTCTRL") {
     return settings.getBool("CNTCTRL") ? "checked" : "";
+  }
+
+  if (var == "NCCONTACTOR") {
+    return settings.getBool("NCCONTACTOR") ? "checked" : "";
   }
 
   if (var == "CNTCTRLDBL") {
@@ -770,6 +792,18 @@ const char* getCANInterfaceName(CAN_Interface interface) {
   }
 }
 
+#ifdef HW_LILYGO2CAN
+#define GPIOOPT1_SETTING \
+  R"rawliteral(
+    <label for="GPIOOPT1">Configurable port:</label>
+    <select id="GPIOOPT1" name="GPIOOPT1">
+      %GPIOOPT1%
+    </select>
+  )rawliteral"
+#else
+#define GPIOOPT1_SETTING ""
+#endif
+
 #define SETTINGS_HTML_SCRIPTS \
   R"rawliteral(
     <script>
@@ -935,7 +969,7 @@ const char* getCANInterfaceName(CAN_Interface interface) {
     form[data-shunt="0"] .if-shunt { display: none; }
 
     form .if-cbms { display: none; }
-    form[data-battery="6"] .if-cbms, form[data-battery="11"] .if-cbms, form[data-battery="22"] .if-cbms, form[data-battery="23"] .if-cbms, form[data-battery="24"] .if-cbms, form[data-battery="31"] .if-cbms {
+    form[data-battery="6"] .if-cbms, form[data-battery="11"] .if-cbms, form[data-battery="22"] .if-cbms, form[data-battery="23"] .if-cbms, form[data-battery="24"] .if-cbms, form[data-battery="31"] .if-cbms, form[data-battery="41"] .if-cbms {
       display: contents;
     }
 
@@ -958,12 +992,15 @@ const char* getCANInterfaceName(CAN_Interface interface) {
     form[data-battery="24"] .if-estimated,
     form[data-battery="32"] .if-estimated, 
     form[data-battery="33"] .if-estimated,
+    form[data-battery="40"] .if-estimated,
+    form[data-battery="41"] .if-estimated,
     form[data-battery="44"] .if-estimated {
       display: contents;
     }
 
     form .if-socestimated { display: none; } /* Integrations where you can turn on SOC estimation */
-    form[data-battery="16"] .if-socestimated {
+    form[data-battery="16"],
+    form[data-battery="41"] .if-socestimated {
       display: contents;
     }
 
@@ -1003,7 +1040,9 @@ const char* getCANInterfaceName(CAN_Interface interface) {
     }
 
     form .if-pylonish { display: none; }
-    form[data-inverter="4"] .if-pylonish, form[data-inverter="10"] .if-pylonish, form[data-inverter="19"] .if-pylonish {
+    form[data-inverter="4"] .if-pylonish, 
+    form[data-inverter="10"] .if-pylonish, 
+    form[data-inverter="19"] .if-pylonish {
       display: contents;
     }
 
@@ -1305,6 +1344,10 @@ const char* getCANInterfaceName(CAN_Interface interface) {
             min="1" max="65000" step="1"
             title="Time in milliseconds the precharge should be active" />
 
+            <label>Use Normally Closed logic: </label>
+            <input type='checkbox' name='NCCONTACTOR' value='on' %NCCONTACTOR% 
+            title="Extremely rare option. If configured, GPIO control logic will be inverted for operation with normally closed contactors" />
+
             <label>PWM contactor control: </label>
             <input type='checkbox' name='PWMCNTCTRL' value='on' %PWMCNTCTRL% />
 
@@ -1339,6 +1382,8 @@ const char* getCANInterfaceName(CAN_Interface interface) {
         <label for='LEDMODE'>Status LED pattern: </label><select name='LEDMODE' id='LEDMODE'>
         %LEDMODE%
         </select>
+
+        )rawliteral" GPIOOPT1_SETTING R"rawliteral(
 
         </div>
         </div>

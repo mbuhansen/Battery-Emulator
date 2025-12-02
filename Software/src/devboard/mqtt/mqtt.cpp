@@ -129,7 +129,8 @@ SensorConfig batterySensorConfigTemplate[] = {
     {"max_charge_power", "Battery Max Charge Power", "", "W", "power", always},
     {"charged_energy", "Battery Charged Energy", "", "Wh", "energy", supports_charged},
     {"discharged_energy", "Battery Discharged Energy", "", "Wh", "energy", supports_charged},
-    {"balancing_active_cells", "Balancing Active Cells", "", "", "", always}};
+    {"balancing_active_cells", "Balancing Active Cells", "", "", "", always},
+    {"balancing_status", "Balancing Status", "", "", "", always}};
 
 SensorConfig globalSensorConfigTemplate[] = {
     {"bms_status", "BMS Status", "", "", "", always},
@@ -214,6 +215,21 @@ static String generateButtonTopic(const char* subtype) {
   return topic_name + "/command/" + String(subtype);
 }
 
+static const char* get_balancing_status_text(balancing_status_enum status) {
+  switch (status) {
+    case BALANCING_STATUS_UNKNOWN:
+      return "Unknown";
+    case BALANCING_STATUS_ERROR:
+      return "Error";
+    case BALANCING_STATUS_READY:
+      return "Ready";
+    case BALANCING_STATUS_ACTIVE:
+      return "Active";
+    default:
+      return "Unknown";
+  }
+}
+
 void set_battery_attributes(JsonDocument& doc, const DATALAYER_BATTERY_TYPE& battery, const String& suffix,
                             bool supports_charged) {
   doc["SOC" + suffix] = ((float)battery.status.reported_soc) / 100.0f;
@@ -255,6 +271,7 @@ void set_battery_attributes(JsonDocument& doc, const DATALAYER_BATTERY_TYPE& bat
     }
   }
   doc["balancing_active_cells" + suffix] = active_cells;
+  doc["balancing_status" + suffix] = get_balancing_status_text(battery.status.balancing_status);
 }
 
 static std::vector<EventData> order_events;
@@ -557,13 +574,12 @@ void mqtt_message_received(char* topic_raw, int topic_len, char* data, int data_
 
   logging.printf("MQTT message arrived: [%.*s]\n", topic_len, topic);
 
-#ifdef REMOTE_BMS_RESET
-  const char* bmsreset_topic = generateButtonTopic("BMSRESET").c_str();
-  if (strcmp(topic, bmsreset_topic) == 0) {
-    logging.println("Triggering BMS reset");
-    start_bms_reset();
+  if (remote_bms_reset) {
+    if (strcmp(topic, generateButtonTopic("BMSRESET").c_str()) == 0) {
+      logging.println("Triggering BMS reset");
+      start_bms_reset();
+    }
   }
-#endif  // REMOTE_BMS_RESET
 
   if (strcmp(topic, generateButtonTopic("PAUSE").c_str()) == 0) {
     setBatteryPause(true, false);

@@ -55,6 +55,8 @@ const char* name_for_battery_type(BatteryType type) {
       return ChademoBattery::Name;
     case BatteryType::CmfaEv:
       return CmfaEvBattery::Name;
+    case BatteryType::CmpSmartCar:
+      return CmpSmartCarBattery::Name;
     case BatteryType::FordMachE:
       return FordMachEBattery::Name;
     case BatteryType::Foxess:
@@ -81,6 +83,8 @@ const char* name_for_battery_type(BatteryType type) {
       return Kia64FDBattery::Name;
     case BatteryType::KiaHyundaiHybrid:
       return KiaHyundaiHybridBattery::Name;
+    case BatteryType::MaxusEV80:
+      return MaxusEV80Battery::Name;
     case BatteryType::Meb:
       return MebBattery::Name;
     case BatteryType::Mg5:
@@ -158,6 +162,8 @@ Battery* create_battery(BatteryType type) {
       return new ChademoBattery();
     case BatteryType::CmfaEv:
       return new CmfaEvBattery();
+    case BatteryType::CmpSmartCar:
+      return new CmpSmartCarBattery();
     case BatteryType::FordMachE:
       return new FordMachEBattery();
     case BatteryType::Foxess:
@@ -184,6 +190,8 @@ Battery* create_battery(BatteryType type) {
       return new KiaHyundai64Battery();
     case BatteryType::KiaHyundaiHybrid:
       return new KiaHyundaiHybridBattery();
+    case BatteryType::MaxusEV80:
+      return new MaxusEV80Battery();
     case BatteryType::Meb:
       return new MebBattery();
     case BatteryType::Mg5:

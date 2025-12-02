@@ -69,6 +69,7 @@ add_compile_definitions(ESP32 HW_LILYGO COMMON_IMAGE)
 add_executable(tests 
     tests.cpp 
     safety_tests.cpp 
+    bms_reset_tests.cpp
     battery/NissanLeafTest.cpp 
     battery/still_alive_tests.cpp
     can_log_based/canlog_safety_tests.cpp
@@ -79,15 +80,14 @@ add_executable(tests
     ../Software/src/devboard/safety/safety.cpp
     ../Software/src/devboard/hal/hal.cpp
     ../Software/src/devboard/utils/events.cpp
+    ../Software/src/devboard/utils/common_functions.cpp
     ../Software/src/datalayer/datalayer.cpp
     ../Software/src/datalayer/datalayer_extended.cpp
-    ../Software/src/lib/eModbus-eModbus/Logging.cpp
     ../Software/src/lib/eModbus-eModbus/ModbusMessage.cpp
     ../Software/src/lib/eModbus-eModbus/ModbusServer.cpp
     ../Software/src/lib/eModbus-eModbus/ModbusServerRTU.cpp
     ../Software/src/lib/eModbus-eModbus/ModbusTypeDefs.cpp
     ../Software/src/lib/eModbus-eModbus/RTUutils.cpp
-#    ../Software/src/lib/eModbus-eModbus/scripts/mbServerFCs.cpp
     ../Software/src/battery/BATTERIES.cpp
     ../Software/src/battery/Battery.cpp
     ../Software/src/battery/BMW-I3-BATTERY.cpp
@@ -103,6 +103,7 @@ add_executable(tests
     ../Software/src/battery/CHADEMO-BATTERY.cpp
     ../Software/src/battery/CHADEMO-SHUNTS.cpp
     ../Software/src/battery/CMFA-EV-BATTERY.cpp
+    ../Software/src/battery/CMP-SMART-CAR-BATTERY.cpp
     ../Software/src/battery/DALY-BMS.cpp
     ../Software/src/battery/ECMP-BATTERY.cpp
     ../Software/src/battery/FORD-MACH-E-BATTERY.cpp
@@ -117,6 +118,7 @@ add_executable(tests
     ../Software/src/battery/KIA-64FD-BATTERY.cpp
     ../Software/src/battery/KIA-HYUNDAI-64-BATTERY.cpp
     ../Software/src/battery/KIA-HYUNDAI-HYBRID-BATTERY.cpp
+    ../Software/src/battery/MAXUS-EV80-BATTERY.cpp
     ../Software/src/battery/MEB-BATTERY.cpp
     ../Software/src/battery/MG-5-BATTERY.cpp
     ../Software/src/battery/MG-HS-PHEV-BATTERY.cpp

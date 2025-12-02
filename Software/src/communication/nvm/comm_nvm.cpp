@@ -43,9 +43,9 @@ void init_stored_settings() {
   if (temp != 0) {
     datalayer.battery.settings.max_percentage = temp * 10;  // Multiply by 10 for backwards compatibility
   }
-  temp = settings.getUInt("MINPERCENTAGE", false);
-  if (temp < 499) {
-    datalayer.battery.settings.min_percentage = temp * 10;  // Multiply by 10 for backwards compatibility
+  int32_t temp2 = settings.getInt("MINPERCENTAGE", false);
+  if (temp2 <= 500 && temp2 >= -100) {
+    datalayer.battery.settings.min_percentage = temp2 * 10;  // Multiply by 10 for backwards compatibility
   }
   temp = settings.getUInt("MAXCHARGEAMP", false);
   if (temp != 0) {
@@ -136,6 +136,7 @@ void init_stored_settings() {
   user_selected_second_battery = settings.getBool("DBLBTR", false);
   double_battery_charge_rate_factor = settings.getUInt("DBLCHGFACTOR", 16);  // Default 1.6x
   contactor_control_enabled = settings.getBool("CNTCTRL", false);
+  contactor_control_inverted_logic = settings.getBool("NCCONTACTOR", false);
   precharge_time_ms = settings.getUInt("PRECHGMS", 100);
   contactor_control_enabled_double_battery = settings.getBool("CNTCTRLDBL", false);
   pwm_contactor_control = settings.getBool("PWMCNTCTRL", false);
@@ -144,6 +145,7 @@ void init_stored_settings() {
   periodic_bms_reset = settings.getBool("PERBMSRESET", false);
   remote_bms_reset = settings.getBool("REMBMSRESET", false);
   use_canfd_as_can = settings.getBool("CANFDASCAN", false);
+  user_selected_gpioopt1 = (GPIOOPT1)settings.getUInt("GPIOOPT1", 0);
 
   precharge_control_enabled = settings.getBool("EXTPRECHARGE", false);
   precharge_inverter_normally_open_contactor = settings.getBool("NOINVDISC", false);
@@ -216,7 +218,7 @@ void store_settings() {
   if (!settings.putUInt("MAXPERCENTAGE", datalayer.battery.settings.max_percentage / 10)) {
     set_event(EVENT_PERSISTENT_SAVE_INFO, 5);
   }
-  if (!settings.putUInt("MINPERCENTAGE", datalayer.battery.settings.min_percentage / 10)) {
+  if (!settings.putInt("MINPERCENTAGE", datalayer.battery.settings.min_percentage / 10)) {
     set_event(EVENT_PERSISTENT_SAVE_INFO, 6);
   }
   if (!settings.putUInt("MAXCHARGEAMP", datalayer.battery.settings.max_user_set_charge_dA)) {

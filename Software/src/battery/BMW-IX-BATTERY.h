@@ -32,6 +32,8 @@ class BmwIXBattery : public CanBattery {
   void reset_DTC() { UserRequestDTCreset = true; }
   bool supports_reset_BMS() { return true; }
   void reset_BMS() { UserRequestBMSReset = true; }
+  bool supports_energy_saving_mode_reset() { return true; }
+  void reset_energy_saving_mode() { UserRequestEnergySavingModeReset = true; }
   bool supports_contactor_close() { return true; }
   void request_open_contactors() { userRequestContactorOpen = true; }
   void request_close_contactors() { userRequestContactorClose = true; }
@@ -44,6 +46,7 @@ class BmwIXBattery : public CanBattery {
   unsigned long get_max_cell_voltage_data_age() const;
   int get_T30_Voltage() const;
   int get_balancing_status() const;
+  int get_energy_saving_mode_status() const;
   int get_hvil_status() const;
   unsigned long get_bms_uptime() const;
   int get_allowable_charge_amps() const;
@@ -61,7 +64,9 @@ class BmwIXBattery : public CanBattery {
   bool UserRequestDTCreset = false;
   bool UserRequestBMSReset = false;
   bool UserRequestDTCRead = false;
-
+  bool UserRequestEnergySavingModeReset = false;
+  bool startup_reset_complete = false;  // Track if startup BMS reset is done
+  unsigned long startup_time = 0;       // Track startup time for delayed reset
   BmwIXHtmlRenderer renderer;
   static const int MAX_PACK_VOLTAGE_78S_DV = 3354;  //SE12 battery, BMW iX1, 66.45kWh 286.3vNom
   static const int MIN_PACK_VOLTAGE_78S_DV = 2200;
@@ -75,6 +80,10 @@ class BmwIXBattery : public CanBattery {
   static const int MAX_CHARGE_POWER_WHEN_TOPBALANCING_W = 500;
   static const int RAMPDOWN_SOC =
       9000;  // (90.00) SOC% to start ramping down from max charge power towards 0 at 100.00%
+  static const int RAMPDOWN_TEMP_MIN_dC = -100;  // (-10.0°C) Temperature below which charging is not allowed
+  static const int RAMPDOWN_TEMP_MAX_dC = 50;    // (5.0°C) Temperature above which no temperature limitation applies
+  static const int RAMPDOWN_TEMP_POWER_W =
+      10000;  // (10000W) Maximum charge power at RAMPDOWN_TEMP_MAX_dC, ramping down to 0W at RAMPDOWN_TEMP_MIN_dC
   static const int STALE_PERIOD_CONFIG =
       900000;  //Number of milliseconds before critical values are classed as stale/stuck 900000 = 900 seconds
 
@@ -366,6 +375,19 @@ CAN_frame BMWiX_49C = {.FD = true,
       .DLC = 5,
       .ID = 0x6F4,
       .data = {0x07, 0x03, 0x22, 0xE5, 0xC7}};  // Generic UDS Request data from SME. byte 4 selects requested value
+  static constexpr CAN_frame BMWiX_6F4_REQUEST_ENERGY_SAVING_MODE_STATUS = {// UDS Request SME Energy saving mode status
+                                                                            .FD = true,
+                                                                            .ext_ID = false,
+                                                                            .DLC = 5,
+                                                                            .ID = 0x6F4,
+                                                                            .data = {0x07, 0x03, 0x22, 0x10, 0x0A}};
+  static constexpr CAN_frame BMWiX_6F4_SET_ENERGY_SAVING_MODE_NORMAL = {
+      // UDS Request  Set energy saving mode to normal
+      .FD = true,
+      .ext_ID = false,
+      .DLC = 8,
+      .ID = 0x6F4,
+      .data = {0x07, 0x05, 0x31, 0x01, 0x0F, 0x0C, 0x00, 0x00}};
   static constexpr CAN_frame BMWiX_6F4_REQUEST_SLEEPMODE = {
       .FD = true,
       .ext_ID = false,
@@ -549,7 +571,7 @@ CAN_frame BMWiX_49C = {.FD = true,
   //Request Data CAN End
 
   //Setup UDS values to poll for
-  static constexpr const CAN_frame* UDS_REQUESTS100MS[17] = {&BMWiX_6F4_REQUEST_CELL_TEMP,
+  static constexpr const CAN_frame* UDS_REQUESTS100MS[18] = {&BMWiX_6F4_REQUEST_CELL_TEMP,
                                                              &BMWiX_6F4_REQUEST_SOC,
                                                              &BMWiX_6F4_REQUEST_CAPACITY,
                                                              &BMWiX_6F4_REQUEST_MINMAXCELLV,
@@ -565,7 +587,8 @@ CAN_frame BMWiX_49C = {.FD = true,
                                                              &BMWiX_6F4_REQUEST_HVIL,
                                                              &BMWiX_6F4_REQUEST_MAX_CHARGE_DISCHARGE_AMPS,
                                                              &BMWiX_6F4_REQUEST_BALANCINGSTATUS,
-                                                             &BMWiX_6F4_REQUEST_PACK_VOLTAGE_LIMITS};
+                                                             &BMWiX_6F4_REQUEST_PACK_VOLTAGE_LIMITS,
+                                                             &BMWiX_6F4_REQUEST_ENERGY_SAVING_MODE_STATUS};
   static const int numUDSreqs =
       sizeof(UDS_REQUESTS100MS) / sizeof(UDS_REQUESTS100MS[0]);  // Number of elements in the fast array
   static constexpr const CAN_frame* UDS_REQUESTS_SLOW[1] = {
@@ -609,8 +632,9 @@ CAN_frame BMWiX_49C = {.FD = true,
   int16_t count_full_charges = 0;        //TODO  42
   int16_t count_charges = 0;             //TODO  42
   int16_t hvil_status = 0;
-  int16_t voltage_qualifier_status = 0;    //0 = Valid, 1 = Invalid
-  int16_t balancing_status = 0;            //4 = not active
+  int16_t voltage_qualifier_status = 0;  //0 = Valid, 1 = Invalid
+  int16_t balancing_status = 0;          //4 = not active
+  int16_t energy_saving_mode_status = 0;
   uint8_t contactors_closed = 0;           //TODO  E5 BF  or E5 51
   uint8_t contactor_status_precharge = 0;  //TODO E5 BF
   uint8_t contactor_status_negative = 0;   //TODO E5 BF
@@ -654,7 +678,8 @@ CAN_frame BMWiX_49C = {.FD = true,
   void parseDTCResponse();
   void handleISOTPFrame(CAN_frame& rx_frame);
   void processCompletedUDSResponse();
-
+  CAN_frame generate_433_datetime_message();
+  CAN_frame generate_442_time_counter_message();
   /**
  * @brief Handle incoming user request to close or open contactors
  *
