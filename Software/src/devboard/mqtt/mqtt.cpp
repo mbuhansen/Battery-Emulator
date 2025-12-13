@@ -208,6 +208,7 @@ void set_battery_voltage_attributes(JsonDocument& doc, int i, int cellNumber, co
   doc["state_class"] = "measurement";
   doc["state_topic"] = state_topic;
   doc["unit_of_measurement"] = "V";
+  doc["suggested_display_precision"] = 3;
   doc["value_template"] = "{{ value_json.cell_voltages[" + String(i) + "] }}";
 }
 
@@ -330,7 +331,7 @@ static bool publish_common_info(void) {
     doc["emulator_status"] = get_emulator_status_string(get_emulator_status());
     doc["secondary_contactor_state"] = digitalRead(SECONDARY_CONTACTOR_PIN);
 
-    serializeJson(doc, mqtt_msg);
+    serializeJson(doc, mqtt_msg, sizeof(mqtt_msg));
     if (mqtt_publish(state_topic.c_str(), mqtt_msg, false) == false) {
       logging.println("Common info MQTT msg could not be sent");
       return false;
