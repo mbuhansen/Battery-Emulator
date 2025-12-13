@@ -289,6 +289,36 @@ void BmwI3Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
               battery_soc_hvmin = (message_data[4] << 8 | message_data[5]);
             }
             break;
+          case BALANCING_STATUS:
+            if (next_data >= 4) {
+              battery_balancing_status = message_data[3];
+              // Parse status text based on value
+              switch (battery_balancing_status) {
+                case 0:
+                  battery_balancing_status_text = "Balancing not active, no balancing needed";
+                  break;
+                case 1:
+                  battery_balancing_status_text = "Balancing active";
+                  break;
+                case 2:
+                  battery_balancing_status_text = "Balancing not active, cells not in rest period. Wait 10 min.";
+                  break;
+                case 3:
+                  battery_balancing_status_text = "Balancing not active. Balancing blocked";
+                  break;
+                default:
+                  battery_balancing_status_text = "Invalid signal";
+                  break;
+              }
+            }
+            break;
+          case TRIGGER_BALANCING:
+            // Handle acknowledgments for balancing command
+            if (rx_frame.DLC == 4 && rx_frame.data.u8[0] == 0xF4 && rx_frame.data.u8[1] == 0x30) {
+              // ACK received, ready to send data frame
+              balancing_command_ack_received = true;
+            }
+            break;
           default:
             break;
         }
@@ -436,6 +466,20 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
       }
 
       next_data = 0;
+      
+      // Check if user requested balancing command
+      if (UserRequestBalancing) {
+        UserRequestBalancing = false;
+        balancing_command_counter = 0;
+        balancing_command_ack_received = false;
+        cmdState = TRIGGER_BALANCING;
+      }
+      // Check if user requested DTC reset
+      else if (UserRequestDTCreset) {
+        UserRequestDTCreset = false;
+        cmdState = CLEAR_DTC;
+      }
+      
       switch (cmdState) {
         case SOC:
           transmit_can_frame(&BMW_6F1_CELL);
@@ -463,12 +507,37 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
           }
           break;
         case CELL_VOLTAGE_CELLNO_LAST:
+          transmit_can_frame(&BMW_6F1_BALANCING_STATUS);
+          cmdState = BALANCING_STATUS;
+          break;
+        case BALANCING_STATUS:
           transmit_can_frame(&BMW_6F1_SOC);
           cmdState = SOC;
+          break;
+        case TRIGGER_BALANCING:
+          // Send balancing command sequence
+          if (balancing_command_counter == 0) {
+            // Send initial frame
+            transmit_can_frame(&BMW_6F4_BALANCING_START);
+            balancing_command_counter++;
+          } else if (balancing_command_ack_received) {
+            // Send data frame with threshold value in byte 4
+            BMW_6F4_BALANCING_DATA.data.u8[4] = balancing_command_counter;
+            transmit_can_frame(&BMW_6F4_BALANCING_DATA);
+            balancing_command_counter++;
+            balancing_command_ack_received = false;
+            
+            // After sending 6 sequences (0-5), return to normal polling
+            if (balancing_command_counter > 5) {
+              balancing_command_counter = 0;
+              cmdState = SOC;
+            }
+          }
           break;
         case CLEAR_DTC:
           transmit_can_frame(&BMW_6F1_CLEAR_DTC);
           cmdState = SOC;  //jump back to normal polling
+          UserRequestDTCreset = false;  // Clear flag after executing
           break;
         default:
           //Should never end up here
