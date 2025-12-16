@@ -225,7 +225,7 @@ class BmwI3Battery : public CanBattery {
                                         .ext_ID = false,
                                         .DLC = 8,
                                         .ID = 0x3E9,
-                                        .data = {0xB0, 0x81, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};  // Load Status
+                                        .data = {0x08, 0x52, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};  // Load Status (charge mode values)
   CAN_frame BMW_3EC = {.FD = false,
                        .ext_ID = false,
                        .DLC = 8,

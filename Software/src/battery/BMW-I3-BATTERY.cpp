@@ -356,9 +356,9 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
       } else if (allows_contactor_closing) {
         //If battery is not in Fault mode, and we are allowed to control contactors, we allow contactor to close by sending 10B
         *allows_contactor_closing = true;
-        transmit_can_frame(&BMW_10B);
+        //transmit_can_frame(&BMW_10B);  // Disabled for charge mode - not sent when charging
       } else if (contactor_closing_allowed && *contactor_closing_allowed) {
-        transmit_can_frame(&BMW_10B);
+        //transmit_can_frame(&BMW_10B);  // Disabled for charge mode - not sent when charging
       }
     }
 
@@ -384,7 +384,7 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
       alive_counter_200ms = increment_alive_counter(alive_counter_200ms);
 
       transmit_can_frame(&BMW_3E9);  // Load Status
-      transmit_can_frame(&BMW_19B);
+      //transmit_can_frame(&BMW_19B);  // Disabled for charge mode
     }
     // Send 500ms CAN Message
     if (currentMillis - previousMillis500 >= INTERVAL_500_MS) {
@@ -395,8 +395,8 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
 
       alive_counter_500ms = increment_alive_counter(alive_counter_500ms);
 
-      transmit_can_frame(&BMW_19E);  // Subsystems Control
-      transmit_can_frame(&BMW_30B);
+      //transmit_can_frame(&BMW_19E);  // Subsystems Control - Disabled for charge mode
+      //transmit_can_frame(&BMW_30B);  // Disabled for charge mode
     }
     // Send 640ms CAN Message
     if (currentMillis - previousMillis640 >= INTERVAL_640_MS) {
@@ -443,19 +443,19 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
       transmit_can_frame(&BMW_3E8);  //Order comes from CAN logs
       transmit_can_frame(&BMW_328);
       transmit_can_frame(&BMW_3F9);
-      transmit_can_frame(&BMW_2E2);
-      transmit_can_frame(&BMW_41D);
-      transmit_can_frame(&BMW_3D0);
+      //transmit_can_frame(&BMW_2E2);  // Disabled for charge mode
+      //transmit_can_frame(&BMW_41D);  // Disabled for charge mode
+      //transmit_can_frame(&BMW_3D0);  // Disabled for charge mode
       transmit_can_frame(&BMW_3CA);
       transmit_can_frame(&BMW_3A7);
       transmit_can_frame(&BMW_2CA);
-      transmit_can_frame(&BMW_3FB);
-      transmit_can_frame(&BMW_418);
+      //transmit_can_frame(&BMW_3FB);  // Disabled for charge mode
+      //transmit_can_frame(&BMW_418);  // Disabled for charge mode
       transmit_can_frame(&BMW_1D0);
-      transmit_can_frame(&BMW_3EC);
-      transmit_can_frame(&BMW_192);
-      transmit_can_frame(&BMW_13E);
-      transmit_can_frame(&BMW_433);
+      //transmit_can_frame(&BMW_3EC);  // Disabled for charge mode
+      //transmit_can_frame(&BMW_192);  // Disabled for charge mode
+      //transmit_can_frame(&BMW_13E);  // Disabled for charge mode
+      //transmit_can_frame(&BMW_433);  // Disabled for charge mode
 
       BMW_433.data.u8[1] = 0x01;  // First 433 message byte1 we send is unique, once we sent initial value send this
       BMW_3E8.data.u8[0] = 0xF1;  // First 3E8 message byte0 we send is unique, once we sent initial value send this
@@ -524,8 +524,8 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
       BMW_3FC.data.u8[1] = ((BMW_3FC.data.u8[1] & 0xF0) + alive_counter_5000ms);
       BMW_3C5.data.u8[0] = ((BMW_3C5.data.u8[0] & 0xF0) + alive_counter_5000ms);
 
-      transmit_can_frame(&BMW_3FC);  //Order comes from CAN logs
-      transmit_can_frame(&BMW_3C5);
+      //transmit_can_frame(&BMW_3FC);  //Order comes from CAN logs - Disabled for charge mode
+      //transmit_can_frame(&BMW_3C5);  // Disabled for charge mode
       transmit_can_frame(&BMW_3A0);
       transmit_can_frame(&BMW_592_0);
       transmit_can_frame(&BMW_592_1);
