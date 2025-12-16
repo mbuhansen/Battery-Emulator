@@ -86,6 +86,7 @@ class Battery {
   virtual bool supports_reset_NVROL() { return false; }
   virtual bool supports_reset_DTC() { return false; }
   virtual bool supports_read_DTC() { return false; }
+  virtual bool supports_read_balancing_status() { return false; }
   virtual bool supports_reset_SOH() { return false; }
   virtual bool supports_reset_BECM() { return false; }
   virtual bool supports_contactor_close() { return false; }
@@ -98,6 +99,7 @@ class Battery {
   virtual bool supports_factory_mode_method() { return false; }
   virtual bool supports_chademo_restart() { return false; }
   virtual bool supports_chademo_stop() { return false; }
+  virtual bool supports_trigger_balancing() { return false; }
 
   virtual void clear_isolation() {}
   virtual void reset_BMS() {}
@@ -107,6 +109,7 @@ class Battery {
   virtual void reset_NVROL() {}
   virtual void reset_DTC() {}
   virtual void read_DTC() {}
+  virtual void read_balancing_status() {}
   virtual void reset_SOH() {}
   virtual void reset_BECM() {}
   virtual void request_open_contactors() {}
@@ -116,6 +119,7 @@ class Battery {
   virtual void set_factory_mode() {}
   virtual void chademo_restart() {}
   virtual void chademo_stop() {}
+  virtual void trigger_balancing(uint16_t threshold_mV) {}
 
   virtual void set_fake_voltage(float v) {}
   virtual float get_voltage();

@@ -108,6 +108,8 @@ struct DATALAYER_BATTERY_STATUS_TYPE {
   led_mode_enum led_mode = CLASSIC;
   /** Balancing status */
   balancing_status_enum balancing_status = BALANCING_STATUS_UNKNOWN;
+  /** BMW i3 specific balancing status value (0-3), 255 = not BMW i3 or not available */
+  uint8_t bmw_i3_balancing_status_value = 255;
 
   /** All cell voltages currently measured in the pack, in mV.
    * Use with battery.info.number_of_cells to get valid data.

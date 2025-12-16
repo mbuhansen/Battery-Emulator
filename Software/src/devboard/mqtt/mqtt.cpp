@@ -97,6 +97,7 @@ struct SensorConfig {
   const char* value_template;
   const char* unit;
   const char* device_class;
+  int8_t suggested_display_precision;  // -1 means not set, otherwise 0-3 decimals
 
   // A function that returns true for the battery if it supports this config
   std::function<bool(Battery*)> condition;
@@ -108,36 +109,40 @@ static std::function<bool(Battery*)> always = [](Battery* b) {
 static std::function<bool(Battery*)> supports_charged = [](Battery* b) {
   return b->supports_charged_energy();
 };
+static std::function<bool(Battery*)> is_bmw_i3 = [](Battery* b) {
+  return user_selected_battery_type == BatteryType::BmwI3;
+};
 
 SensorConfig batterySensorConfigTemplate[] = {
-    {"SOC", "SOC (Scaled)", "", "%", "battery", always},
-    {"SOC_real", "SOC (real)", "", "%", "battery", always},
-    {"state_of_health", "State Of Health", "", "%", "battery", always},
-    {"temperature_min", "Temperature Min", "", "°C", "temperature", always},
-    {"temperature_max", "Temperature Max", "", "°C", "temperature", always},
-    {"cpu_temp", "CPU Temperature", "", "°C", "temperature", always},
-    {"stat_batt_power", "Stat Batt Power", "", "W", "power", always},
-    {"battery_current", "Battery Current", "", "A", "current", always},
-    {"cell_max_voltage", "Cell Max Voltage", "", "V", "voltage", always},
-    {"cell_min_voltage", "Cell Min Voltage", "", "V", "voltage", always},
-    {"cell_voltage_delta", "Cell Voltage Delta", "", "mV", "voltage", always},
-    {"battery_voltage", "Battery Voltage", "", "V", "voltage", always},
-    {"total_capacity", "Battery Total Capacity", "", "Wh", "energy", always},
-    {"remaining_capacity", "Battery Remaining Capacity (scaled)", "", "Wh", "energy", always},
-    {"remaining_capacity_real", "Battery Remaining Capacity (real)", "", "Wh", "energy", always},
-    {"max_discharge_power", "Battery Max Discharge Power", "", "W", "power", always},
-    {"max_charge_power", "Battery Max Charge Power", "", "W", "power", always},
-    {"charged_energy", "Battery Charged Energy", "", "Wh", "energy", supports_charged},
-    {"discharged_energy", "Battery Discharged Energy", "", "Wh", "energy", supports_charged},
-    {"balancing_active_cells", "Balancing Active Cells", "", "", "", always},
-    {"balancing_status", "Balancing Status", "", "", "", always}};
+    {"SOC", "SOC (Scaled)", "", "%", "battery", -1, always},
+    {"SOC_real", "SOC (real)", "", "%", "battery", -1, always},
+    {"state_of_health", "State Of Health", "", "%", "battery", -1, always},
+    {"temperature_min", "Temperature Min", "", "°C", "temperature", -1, always},
+    {"temperature_max", "Temperature Max", "", "°C", "temperature", -1, always},
+    {"cpu_temp", "CPU Temperature", "", "°C", "temperature", -1, always},
+    {"stat_batt_power", "Stat Batt Power", "", "W", "power", -1, always},
+    {"battery_current", "Battery Current", "", "A", "current", -1, always},
+    {"cell_max_voltage", "Cell Max Voltage", "", "V", "voltage", 3, always},
+    {"cell_min_voltage", "Cell Min Voltage", "", "V", "voltage", 3, always},
+    {"cell_voltage_delta", "Cell Voltage Delta", "", "mV", "voltage", -1, always},
+    {"battery_voltage", "Battery Voltage", "", "V", "voltage", -1, always},
+    {"total_capacity", "Battery Total Capacity", "", "Wh", "energy", -1, always},
+    {"remaining_capacity", "Battery Remaining Capacity (scaled)", "", "Wh", "energy", -1, always},
+    {"remaining_capacity_real", "Battery Remaining Capacity (real)", "", "Wh", "energy", -1, always},
+    {"max_discharge_power", "Battery Max Discharge Power", "", "W", "power", -1, always},
+    {"max_charge_power", "Battery Max Charge Power", "", "W", "power", -1, always},
+    {"charged_energy", "Battery Charged Energy", "", "Wh", "energy", -1, supports_charged},
+    {"discharged_energy", "Battery Discharged Energy", "", "Wh", "energy", -1, supports_charged},
+    {"balancing_active_cells", "Balancing Active Cells", "", "", "", -1, always},
+    {"balancing_status", "Balancing Status", "", "", "", -1, always},
+    {"bmw_i3_balancing_status_value", "BMW i3 Balancing Status Value", "", "", "", -1, is_bmw_i3}};
 
 SensorConfig globalSensorConfigTemplate[] = {
-    {"bms_status", "BMS Status", "", "", "", always},
-    {"pause_status", "Pause Status", "", "", "", always},
-    {"event_level", "Event Level", "", "", "", always},
-    {"emulator_status", "Emulator Status", "", "", "", always},
-    {"secondary_contactor_state", "Secondary Contactor State", "", "", "", always}};
+    {"bms_status", "BMS Status", "", "", "", -1, always},
+    {"pause_status", "Pause Status", "", "", "", -1, always},
+    {"event_level", "Event Level", "", "", "", -1, always},
+    {"emulator_status", "Emulator Status", "", "", "", -1, always},
+    {"secondary_contactor_state", "Secondary Contactor State", "", "", "", -1, always}};
 
 static std::list<SensorConfig> sensorConfigs;
 
@@ -164,13 +169,13 @@ void create_global_sensor_configs() {
   }
 }
 
-SensorConfig buttonConfigs[] = {{"BMSRESET", "Reset BMS", nullptr, nullptr, nullptr, nullptr},
-                                {"PAUSE", "Pause charge/discharge", nullptr, nullptr, nullptr, nullptr},
-                                {"RESUME", "Resume charge/discharge", nullptr, nullptr, nullptr, nullptr},
-                                {"RESTART", "Restart Battery Emulator", nullptr, nullptr, nullptr, nullptr},
-                                {"STOP", "Open Contactors", nullptr, nullptr, nullptr, nullptr},
-                                {"CONTACTOR_HIGH", "Open Secondary Contactor", nullptr, nullptr, nullptr, nullptr},
-                                {"CONTACTOR_LOW", "Close Secondary Contactor", nullptr, nullptr, nullptr, nullptr}};
+SensorConfig buttonConfigs[] = {{"BMSRESET", "Reset BMS", nullptr, nullptr, nullptr, -1, nullptr},
+                                {"PAUSE", "Pause charge/discharge", nullptr, nullptr, nullptr, -1, nullptr},
+                                {"RESUME", "Resume charge/discharge", nullptr, nullptr, nullptr, -1, nullptr},
+                                {"RESTART", "Restart Battery Emulator", nullptr, nullptr, nullptr, -1, nullptr},
+                                {"STOP", "Open Contactors", nullptr, nullptr, nullptr, -1, nullptr},
+                                {"CONTACTOR_HIGH", "Open Secondary Contactor", nullptr, nullptr, nullptr, -1, nullptr},
+                                {"CONTACTOR_LOW", "Close Secondary Contactor", nullptr, nullptr, nullptr, -1, nullptr}};
 
 static String generateCommonInfoAutoConfigTopic(const char* object_id) {
   return "homeassistant/sensor/" + topic_name + "/" + String(object_id) + "/config";
@@ -273,6 +278,11 @@ void set_battery_attributes(JsonDocument& doc, const DATALAYER_BATTERY_TYPE& bat
   }
   doc["balancing_active_cells" + suffix] = active_cells;
   doc["balancing_status" + suffix] = get_balancing_status_text(battery.status.balancing_status);
+  
+  // Add BMW i3 specific balancing status value if available
+  if (battery.status.bmw_i3_balancing_status_value != 255) {
+    doc["bmw_i3_balancing_status_value" + suffix] = battery.status.bmw_i3_balancing_status_value;
+  }
 }
 
 static std::vector<EventData> order_events;
@@ -300,6 +310,9 @@ static bool publish_common_info(void) {
       if (config.device_class != nullptr && strlen(config.device_class) > 0) {
         doc["device_class"] = config.device_class;
         doc["state_class"] = "measurement";
+      }
+      if (config.suggested_display_precision >= 0) {
+        doc["suggested_display_precision"] = config.suggested_display_precision;
       }
       set_common_discovery_attributes(doc);
       serializeJson(doc, mqtt_msg);

@@ -29,6 +29,9 @@ std::vector<BatteryCommand> battery_commands = {
      [](Battery* b) { b->reset_DTC(); }},
     {"readDTC", "Read DTC", nullptr, [](Battery* b) { return b && b->supports_read_DTC(); },
      [](Battery* b) { b->read_DTC(); }},
+    {"readBalancingStatus", "Query Balancing Status", nullptr,
+     [](Battery* b) { return b && b->supports_read_balancing_status(); },
+     [](Battery* b) { b->read_balancing_status(); }},
     {"resetBECM", "Restart BECM module", "restart BECM??", [](Battery* b) { return b && b->supports_reset_BECM(); },
      [](Battery* b) { b->reset_BECM(); }},
     {"contactorClose", "Close Contactors", "a contactor close request?",
@@ -45,6 +48,9 @@ std::vector<BatteryCommand> battery_commands = {
     {"resetEnergySavingMode", "Reset Energy Saving Mode", "reset energy saving mode to normal?",
      [](Battery* b) { return b && b->supports_energy_saving_mode_reset(); },
      [](Battery* b) { b->reset_energy_saving_mode(); }},
+    {"triggerBalancing", "Trigger Cell Balancing (4010mV)", "trigger cell balancing at 4010mV threshold?",
+     [](Battery* b) { return b && b->supports_trigger_balancing(); },
+     [](Battery* b) { b->trigger_balancing(4010); }},
 };
 
 String advanced_battery_processor(const String& var) {

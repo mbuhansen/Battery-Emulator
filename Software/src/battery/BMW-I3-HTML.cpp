@@ -94,24 +94,26 @@ String BmwI3HtmlRenderer::get_status_html() {
   content +=
       "<h4>Cold shutoff valve: " + String(safeArrayAccess(valveText, 16, batt.ST_cold_shutoff_valve())) + "</h4>";
   
-  // Add balancing status
+  // Add balancing status with value
+  uint8_t balancing_value = batt.balancing_status();
   static const char* balancingText[16] = {"Balancing not active, no balancing needed",
                                           "Balancing active",
                                           "Balancing not active, cells not in rest period. Wait 10 min.",
                                           "Balancing not active. Balancing blocked",
-                                          "Invalid signal",
-                                          "Invalid signal",
-                                          "Invalid signal",
-                                          "Invalid signal",
-                                          "Invalid signal",
-                                          "Invalid signal",
-                                          "Invalid signal",
-                                          "Invalid signal",
-                                          "Invalid signal",
-                                          "Invalid signal",
-                                          "Invalid signal",
-                                          "Invalid signal"};
-  content += "<h4>Balancing status: " + String(safeArrayAccess(balancingText, 16, batt.balancing_status())) + "</h4>";
+                                          "Not evaluated",
+                                          "Not evaluated",
+                                          "Not evaluated",
+                                          "Not evaluated",
+                                          "Not evaluated",
+                                          "Not evaluated",
+                                          "Not evaluated",
+                                          "Not evaluated",
+                                          "Not evaluated",
+                                          "Not evaluated",
+                                          "Not evaluated",
+                                          "Not evaluated"};
+  content += "<h4>Balancing status: " + String(safeArrayAccess(balancingText, 16, balancing_value)) + 
+             " (Value: " + String(balancing_value) + ")</h4>";
 
   return content;
 }

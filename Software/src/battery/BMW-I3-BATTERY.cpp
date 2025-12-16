@@ -78,6 +78,9 @@ void BmwI3Battery::update_values() {  //This function maps all the values fetche
 
   datalayer_battery->status.temperature_max_dC = battery_temperature_max * 10;  // Add a decimal
 
+  // Update BMW i3 specific balancing status value for MQTT
+  datalayer_battery->status.bmw_i3_balancing_status_value = battery_balancing_status;
+
   if (battery_info_available) {
     // Start checking safeties. First up, cellvoltages!
     if (detectedBattery == BATTERY_60AH) {
@@ -104,11 +107,11 @@ void BmwI3Battery::update_values() {  //This function maps all the values fetche
   } else {
     clear_event(EVENT_HVIL_FAILURE);
   }
-  //if (battery_status_error_disconnecting_switch > 0) {  // Check if contactors are sticking / welded
-  //  set_event(EVENT_CONTACTOR_WELDED, 0);
-  //} else {
-  //  clear_event(EVENT_CONTACTOR_WELDED);
-  //}
+  if (battery_status_error_disconnecting_switch > 0) {  // Check if contactors are sticking / welded
+    set_event(EVENT_CONTACTOR_WELDED, 0);
+  } else {
+    clear_event(EVENT_CONTACTOR_WELDED);
+  }
 }
 
 void BmwI3Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
@@ -289,37 +292,31 @@ void BmwI3Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
               battery_soc_hvmin = (message_data[4] << 8 | message_data[5]);
             }
             break;
-          case BALANCING_STATUS:
-            if (next_data >= 4) {
-              battery_balancing_status = message_data[3];
-              // Parse status text based on value
-              switch (battery_balancing_status) {
-                case 0:
-                  battery_balancing_status_text = "Balancing not active, no balancing needed";
-                  break;
-                case 1:
-                  battery_balancing_status_text = "Balancing active";
-                  break;
-                case 2:
-                  battery_balancing_status_text = "Balancing not active, cells not in rest period. Wait 10 min.";
-                  break;
-                case 3:
-                  battery_balancing_status_text = "Balancing not active. Balancing blocked";
-                  break;
-                default:
-                  battery_balancing_status_text = "Invalid signal";
-                  break;
-              }
-            }
+          default:
             break;
-          case TRIGGER_BALANCING:
-            // Handle acknowledgments for balancing command
-            if (rx_frame.DLC == 4 && rx_frame.data.u8[0] == 0xF4 && rx_frame.data.u8[1] == 0x30) {
-              // ACK received, ready to send data frame
-              balancing_command_ack_received = true;
-            }
+        }
+      }
+      // Handle single-frame balancing status response (DLC=7)
+      // Format: F1 05 71 03 AD 75 [STATUS]
+      if (cmdState == READ_BALANCING_STATUS && rx_frame.DLC == 7 && rx_frame.data.u8[0] == 0xF1 && 
+          rx_frame.data.u8[2] == 0x71 && rx_frame.data.u8[3] == 0x03) {
+        battery_balancing_status = rx_frame.data.u8[6];
+        // Parse status text based on value
+        switch (battery_balancing_status) {
+          case 0:
+            battery_balancing_status_text = "Balancing not active, no balancing needed";
+            break;
+          case 1:
+            battery_balancing_status_text = "Balancing active";
+            break;
+          case 2:
+            battery_balancing_status_text = "Balancing not active, cells not in rest period. Wait 10 min.";
+            break;
+          case 3:
+            battery_balancing_status_text = "Balancing not active. Balancing blocked";
             break;
           default:
+            battery_balancing_status_text = "Invalid signal";
             break;
         }
       }
@@ -374,6 +371,7 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
 
       alive_counter_100ms = increment_alive_counter(alive_counter_100ms);
 
+      transmit_can_frame(&BMW_108);  // Actual Charging Electronics Data
       transmit_can_frame(&BMW_12F);
     }
     // Send 200ms CAN Message
@@ -385,6 +383,7 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
 
       alive_counter_200ms = increment_alive_counter(alive_counter_200ms);
 
+      transmit_can_frame(&BMW_3E9);  // Load Status
       transmit_can_frame(&BMW_19B);
     }
     // Send 500ms CAN Message
@@ -396,6 +395,7 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
 
       alive_counter_500ms = increment_alive_counter(alive_counter_500ms);
 
+      transmit_can_frame(&BMW_19E);  // Subsystems Control
       transmit_can_frame(&BMW_30B);
     }
     // Send 640ms CAN Message
@@ -467,15 +467,8 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
 
       next_data = 0;
       
-      // Check if user requested balancing command
-      if (UserRequestBalancing) {
-        UserRequestBalancing = false;
-        balancing_command_counter = 0;
-        balancing_command_ack_received = false;
-        cmdState = TRIGGER_BALANCING;
-      }
       // Check if user requested DTC reset
-      else if (UserRequestDTCreset) {
+      if (UserRequestDTCreset) {
         UserRequestDTCreset = false;
         cmdState = CLEAR_DTC;
       }
@@ -493,7 +486,6 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
           transmit_can_frame(&BMW_6F1_CELL_VOLTAGE_AVG);
           cmdState = CELL_VOLTAGE_CELLNO;
           current_cell_polled = 0;
-
           break;
         case CELL_VOLTAGE_CELLNO:
           current_cell_polled++;
@@ -508,31 +500,11 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
           break;
         case CELL_VOLTAGE_CELLNO_LAST:
           transmit_can_frame(&BMW_6F1_BALANCING_STATUS);
-          cmdState = BALANCING_STATUS;
+          cmdState = READ_BALANCING_STATUS;
           break;
-        case BALANCING_STATUS:
+        case READ_BALANCING_STATUS:
           transmit_can_frame(&BMW_6F1_SOC);
-          cmdState = SOC;
-          break;
-        case TRIGGER_BALANCING:
-          // Send balancing command sequence
-          if (balancing_command_counter == 0) {
-            // Send initial frame
-            transmit_can_frame(&BMW_6F4_BALANCING_START);
-            balancing_command_counter++;
-          } else if (balancing_command_ack_received) {
-            // Send data frame with threshold value in byte 4
-            BMW_6F4_BALANCING_DATA.data.u8[4] = balancing_command_counter;
-            transmit_can_frame(&BMW_6F4_BALANCING_DATA);
-            balancing_command_counter++;
-            balancing_command_ack_received = false;
-            
-            // After sending 6 sequences (0-5), return to normal polling
-            if (balancing_command_counter > 5) {
-              balancing_command_counter = 0;
-              cmdState = SOC;
-            }
-          }
+          cmdState = SOC;  //jump back to normal polling
           break;
         case CLEAR_DTC:
           transmit_can_frame(&BMW_6F1_CLEAR_DTC);

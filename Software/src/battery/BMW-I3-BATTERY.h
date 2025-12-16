@@ -38,18 +38,6 @@ class BmwI3Battery : public CanBattery {
   bool supports_reset_DTC() { return true; }
   void reset_DTC() { UserRequestDTCreset = true; }
 
-  // Trigger cell balancing command with specified threshold (in mV)
-  void trigger_balancing(uint16_t threshold_mV = 4010) {
-    battery_balancing_threshold_mV = threshold_mV;
-    UserRequestBalancing = true;
-  }
-  
-  // Get current balancing threshold in mV
-  uint16_t get_balancing_threshold_mV() { return battery_balancing_threshold_mV; }
-  
-  // Set balancing threshold in mV (does not trigger balancing, use trigger_balancing for that)
-  void set_balancing_threshold_mV(uint16_t threshold_mV) { battery_balancing_threshold_mV = threshold_mV; }
-
   // SOC% raw battery value. Might not always reach 100%
   uint16_t SOC_raw() { return (battery_HVBatt_SOC * 10); }
   // SOC% instrumentation cluster value. Will always reach 100%
@@ -88,7 +76,6 @@ class BmwI3Battery : public CanBattery {
 
  private:
   bool UserRequestDTCreset = false;
-  bool UserRequestBalancing = false;
 
   const int MAX_CELL_VOLTAGE_60AH = 4110;   // Battery is put into emergency stop if one cell goes over this value
   const int MIN_CELL_VOLTAGE_60AH = 2700;   // Battery is put into emergency stop if one cell goes below this value
@@ -131,7 +118,7 @@ class BmwI3Battery : public CanBattery {
   enum BatterySize { BATTERY_60AH, BATTERY_94AH, BATTERY_120AH };
   BatterySize detectedBattery = BATTERY_60AH;
 
-  enum CmdState { SOH, CELL_VOLTAGE_MINMAX, SOC, CELL_VOLTAGE_CELLNO, CELL_VOLTAGE_CELLNO_LAST, BALANCING_STATUS, TRIGGER_BALANCING, CLEAR_DTC };
+  enum CmdState { SOC, CELL_VOLTAGE_MINMAX, SOH, CELL_VOLTAGE_CELLNO, CELL_VOLTAGE_CELLNO_LAST, READ_BALANCING_STATUS, CLEAR_DTC };
 
   CmdState cmdState = SOC;
 
@@ -140,6 +127,11 @@ class BmwI3Battery : public CanBattery {
      3E9 32F 19E 326 55E 515 509 50A 51A 2F5 3A4 432 3C9 
      */
 
+  static constexpr CAN_frame BMW_108 = {.FD = false,
+                                        .ext_ID = false,
+                                        .DLC = 8,
+                                        .ID = 0x108,
+                                        .data = {0x00, 0x7D, 0xFF, 0xFF, 0x07, 0xF1, 0xFF, 0xFF}};  // Actual Charging Electronics Data
   CAN_frame BMW_10B = {.FD = false,
                        .ext_ID = false,
                        .DLC = 3,
@@ -165,6 +157,11 @@ class BmwI3Battery : public CanBattery {
                        .DLC = 8,
                        .ID = 0x19B,
                        .data = {0x20, 0x40, 0x40, 0x55, 0xFD, 0xFF, 0xFF, 0xFF}};
+  static constexpr CAN_frame BMW_19E = {.FD = false,
+                                        .ext_ID = false,
+                                        .DLC = 8,
+                                        .ID = 0x19E,
+                                        .data = {0x0A, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF}};  // Subsystems Control
   CAN_frame BMW_1D0 = {.FD = false,
                        .ext_ID = false,
                        .DLC = 8,
@@ -224,6 +221,11 @@ class BmwI3Battery : public CanBattery {
                                         .data = {0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF}};
   CAN_frame BMW_3E5 = {.FD = false, .ext_ID = false, .DLC = 3, .ID = 0x3E5, .data = {0xFC, 0xFF, 0xFF}};
   CAN_frame BMW_3E8 = {.FD = false, .ext_ID = false, .DLC = 2, .ID = 0x3E8, .data = {0xF0, 0xFF}};  //1000ms OBD reset
+  static constexpr CAN_frame BMW_3E9 = {.FD = false,
+                                        .ext_ID = false,
+                                        .DLC = 8,
+                                        .ID = 0x3E9,
+                                        .data = {0xB0, 0x81, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};  // Load Status
   CAN_frame BMW_3EC = {.FD = false,
                        .ext_ID = false,
                        .DLC = 8,
@@ -316,21 +318,10 @@ class BmwI3Battery : public CanBattery {
                                                       .DLC = 6,
                                                       .ID = 0x6F4,
                                                       .data = {0x07, 0x04, 0x31, 0x03, 0xAD, 0x6E}};  static constexpr CAN_frame BMW_6F1_BALANCING_STATUS = {.FD = false,
-                                                         .ext_ID = false,
-                                                         .DLC = 6,
-                                                         .ID = 0x615,
-                                                         .data = {0xF1, 0x04, 0x31, 0x03, 0xAD, 0x75}};
-  // Balancing command frames - Write Data By Identifier (0x2E) to set balancing threshold
-  static constexpr CAN_frame BMW_6F4_BALANCING_START = {.FD = false,
-                                                        .ext_ID = false,
-                                                        .DLC = 8,
-                                                        .ID = 0x6F4,
-                                                        .data = {0x07, 0x10, 0x08, 0x2E, 0x65, 0x11, 0x00, 0x00}};
-  CAN_frame BMW_6F4_BALANCING_DATA = {.FD = false,
-                                      .ext_ID = false,
-                                      .DLC = 8,
-                                      .ID = 0x6F4,
-                                      .data = {0x07, 0x21, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF}};
+                                                       .ext_ID = false,
+                                                       .DLC = 6,
+                                                       .ID = 0x6F1,
+                                                       .data = {0x07, 0x04, 0x31, 0x03, 0xAD, 0x75}};
   //The above CAN messages need to be sent towards the battery to keep it alive
 
   uint8_t startup_counter_contactor = 0;
@@ -420,11 +411,8 @@ class BmwI3Battery : public CanBattery {
   uint8_t battery_status_diagnosis_powertrain_immediate_multiplexer = 0;
   uint8_t battery_ID2 = 0;
   uint8_t battery_soh = 99;
-  uint8_t battery_balancing_status = 0;  // 0=Not evaluated, 1=Active, 2=Not active, 3=Not active blocked, 4+=Invalid
+  uint8_t battery_balancing_status = 4;  // 0=no balancing needed, 1=Active, 2=not in rest, 3=blocked, 4+=Not evaluated
   const char* battery_balancing_status_text = "Unknown";
-  uint16_t battery_balancing_threshold_mV = 4010;  // Default balancing threshold in mV (4010mV = 4.010V)
-  uint8_t balancing_command_counter = 0;  // Counter for balancing command sequence (0-5)
-  bool balancing_command_ack_received = false;
 
   uint8_t message_data[50];
   uint8_t next_data = 0;
