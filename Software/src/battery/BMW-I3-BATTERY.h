@@ -110,6 +110,7 @@ class BmwI3Battery : public CanBattery {
   unsigned long previousMillis1000 = 0;   // will store last time a 1000ms CAN Message was send
   unsigned long previousMillis5000 = 0;   // will store last time a 5000ms CAN Message was send
   unsigned long previousMillis10000 = 0;  // will store last time a 10000ms CAN Message was send
+  unsigned long wakeup_pin_high_time = 0; // will store when wakeup pin was set HIGH
 
   static const int ALIVE_MAX_VALUE = 14;  // BMW CAN messages contain alive counter, goes from 0...14
 
