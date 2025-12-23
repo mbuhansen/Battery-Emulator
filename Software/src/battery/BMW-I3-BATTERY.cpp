@@ -362,9 +362,9 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
       } else if (allows_contactor_closing) {
         //If battery is not in Fault mode, and we are allowed to control contactors, we allow contactor to close by sending 10B
         *allows_contactor_closing = true;
-        //transmit_can_frame(&BMW_10B);  // Disabled for charge mode - not sent when charging
+        transmit_can_frame(&BMW_10B);
       } else if (contactor_closing_allowed && *contactor_closing_allowed) {
-        //transmit_can_frame(&BMW_10B);  // Disabled for charge mode - not sent when charging
+        transmit_can_frame(&BMW_10B);
       }
     }
 
@@ -388,6 +388,49 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
       BMW_19B.data.u8[0] = calculateCRC(BMW_19B, 8, 0x6C);
 
       alive_counter_200ms = increment_alive_counter(alive_counter_200ms);
+
+      // Dynamisk 0x3E9 charge mode progression (baseret på real BMW i3 charge log)
+      // Progressionen følger: idle → charge start → ramping up → stable charging
+      static bool charge_mode_activated = false;
+      static unsigned long charge_mode_start_time = 0;
+      
+      if (battery_awake && !charge_mode_activated && millis() > 2000) {
+        // Initial charge mode activation
+        BMW_3E9.data.u8[0] = 0x08;  // Charge mode flag
+        BMW_3E9.data.u8[1] = 0x52;  // Charge mode value
+        charge_mode_activated = true;
+        charge_mode_start_time = millis();
+      }
+      
+      if (charge_mode_activated) {
+        unsigned long time_in_charge = millis() - charge_mode_start_time;
+        
+        if (time_in_charge < 1000) {
+          // 0-1s: Initial charge mode (0x08 52 00 00 00 00 00 00)
+          BMW_3E9.data.u8[2] = 0x00;
+          BMW_3E9.data.u8[3] = 0x00;
+          BMW_3E9.data.u8[4] = 0x00;
+          BMW_3E9.data.u8[7] = 0x00;
+        } else if (time_in_charge < 1500) {
+          // 1-1.5s: Charge starting (0x08 52 11 00 00 00 00 00)
+          BMW_3E9.data.u8[2] = 0x11;
+        } else if (time_in_charge < 4500) {
+          // 1.5-4.5s: Charge ramping (0x08 52 11 01 00 00 00 00)
+          BMW_3E9.data.u8[2] = 0x11;
+          BMW_3E9.data.u8[3] = 0x01;
+        } else if (time_in_charge < 6500) {
+          // 4.5-6.5s: Charge building up with variations (0x08 52 11 31-51 04 00 00 00)
+          BMW_3E9.data.u8[2] = 0x11;
+          BMW_3E9.data.u8[3] = 0x31 + ((time_in_charge / 500) % 3) * 0x10;  // Varierer mellem 0x31, 0x41, 0x51
+          BMW_3E9.data.u8[4] = 0x04;
+        } else {
+          // >6.5s: Stable charging (0x08 52 21 11 04 00 00 63)
+          BMW_3E9.data.u8[2] = 0x21;  // Stable charge flag
+          BMW_3E9.data.u8[3] = 0x11;  // Stable current level
+          BMW_3E9.data.u8[4] = 0x04;  // Stable power level
+          BMW_3E9.data.u8[7] = 0x63;  // Status/checksum byte
+        }
+      }
 
       transmit_can_frame(&BMW_3E9);  // Load Status
       //transmit_can_frame(&BMW_19B);  // Disabled for charge mode
