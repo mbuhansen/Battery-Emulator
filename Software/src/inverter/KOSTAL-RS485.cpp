@@ -167,9 +167,9 @@ void KostalInverterProtocol::update_values() {
   } else {
     if (datalayer.system.status.inverter_allows_contactor_closing) {
       // Contactors closed - send actual current
-        float2frame(CYCLIC_DATA, (float)datalayer.battery.status.reported_current_dA / 10, 18);  // Last current
-        float2frame(CYCLIC_DATA, (float)datalayer.battery.status.reported_current_dA / 10, 
-                 22);  // Avg current(1s)
+      float2frame(CYCLIC_DATA, (float)datalayer.battery.status.reported_current_dA / 10, 18);  // Last current
+      float2frame(CYCLIC_DATA, (float)datalayer.battery.status.reported_current_dA / 10,
+                  22);  // Avg current(1s)
 
       CYCLIC_DATA[56] = 1;
       CYCLIC_DATA[57] = 0x02;
