@@ -27,11 +27,14 @@ class KostalInverterProtocol : public Rs485InverterProtocol {
   int8_t f2_startup_count = 0;
 
   bool info_sent = false;
+  bool pendingContactorCloseRequest = false;  // Flag to remember contactor close request during startup
   unsigned long currentMillis;
   unsigned long startupMillis = 0;
   unsigned long contactorMillis = 0;
-  unsigned long contactortestTimerStart = 0;
-  bool contactortestTimerActive = false;
+  unsigned long contactorcloseTimerStart = 0;
+  bool contactorcloseTimerActive = false;
+  unsigned long startupTimerStart = 0;
+  bool startupTimerActive = false;
 
   uint16_t rx_index = 0;
   bool RX_allow = false;
