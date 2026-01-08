@@ -114,8 +114,12 @@ void KostalInverterProtocol::update_values() {
     float2frame(CYCLIC_DATA, (float)datalayer.battery.status.voltage_dV / 10, 6);  // Confirmed OK mapping
     float2frame(CYCLIC_DATA, (float)average_temperature_dC / 10, 14);
 
-    // Max discharge and charge currents
-    float2frame(CYCLIC_DATA, (float)datalayer.battery.status.max_discharge_current_dA / 10, 26);
+    // Max discharge current - set to 0 when SoC is 7% or below
+    if ((datalayer.battery.status.reported_soc / 100) <= 7) {
+      float2frame(CYCLIC_DATA, 0.0, 26);  // Discharge current = 0 at low SoC
+    } else {
+      float2frame(CYCLIC_DATA, (float)datalayer.battery.status.max_discharge_current_dA / 10, 26);
+    }
 
     // When SoC is 100%, drop down allowed charge current.
     if ((datalayer.battery.status.reported_soc / 100) < 100) {
