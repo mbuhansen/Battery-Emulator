@@ -47,10 +47,10 @@ void BmwI3Battery::update_values() {  //This function maps all the values fetche
     wakeup_pin_high_time = 0;       // Reset timer
   } else if (millis() > INTERVAL_1_S) {
     if (wakeup_pin_high_time == 0) {
-      digitalWrite(wakeup_pin, HIGH);  // Wake up the battery
-      wakeup_pin_high_time = millis(); // Start timer
+      digitalWrite(wakeup_pin, HIGH);   // Wake up the battery
+      wakeup_pin_high_time = millis();  // Start timer
     } else if (millis() - wakeup_pin_high_time > 5000) {
-      digitalWrite(wakeup_pin, LOW);   // Turn off after 5 seconds
+      digitalWrite(wakeup_pin, LOW);  // Turn off after 5 seconds
     }
   }
 
@@ -304,7 +304,7 @@ void BmwI3Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
       }
       // Handle single-frame balancing status response (DLC=7)
       // Format: F1 05 71 03 AD 75 [STATUS]
-      if (cmdState == READ_BALANCING_STATUS && rx_frame.DLC == 7 && rx_frame.data.u8[0] == 0xF1 && 
+      if (cmdState == READ_BALANCING_STATUS && rx_frame.DLC == 7 && rx_frame.data.u8[0] == 0xF1 &&
           rx_frame.data.u8[2] == 0x71 && rx_frame.data.u8[3] == 0x03) {
         battery_balancing_status = rx_frame.data.u8[6];
         // Parse status text based on value
@@ -472,13 +472,13 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
       }
 
       next_data = 0;
-      
+
       // Check if user requested DTC reset
       if (UserRequestDTCreset) {
         UserRequestDTCreset = false;
         cmdState = CLEAR_DTC;
       }
-      
+
       switch (cmdState) {
         case SOC:
           transmit_can_frame(&BMW_6F1_CELL);
@@ -514,7 +514,7 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
           break;
         case CLEAR_DTC:
           transmit_can_frame(&BMW_6F1_CLEAR_DTC);
-          cmdState = SOC;  //jump back to normal polling
+          cmdState = SOC;               //jump back to normal polling
           UserRequestDTCreset = false;  // Clear flag after executing
           break;
         default:
