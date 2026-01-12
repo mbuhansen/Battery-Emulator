@@ -339,32 +339,31 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
     if (currentMillis - previousMillis20 >= INTERVAL_20_MS) {
       previousMillis20 = currentMillis;
 
-      //if (startup_counter_contactor < 160) {
-      //  startup_counter_contactor++;
-      //} else {                      //After 160 messages, turn on the request
-      //  BMW_10B.data.u8[1] = 0x10;  // Close contactors
-      //}
-      if (datalayer.system.status.inverter_allows_contactor_closing) {
-        BMW_10B.data.u8[1] = 0x10;  // Close contactors when inverter allows
-      } else {
-        BMW_10B.data.u8[1] = 0x00;  // Keep contactors open when inverter doesn't allow
-      }
-
-      BMW_10B.data.u8[1] = ((BMW_10B.data.u8[1] & 0xF0) + alive_counter_20ms);
-      BMW_10B.data.u8[0] = calculateCRC(BMW_10B, 3, 0x3F);
-
       alive_counter_20ms = increment_alive_counter(alive_counter_20ms);
 
       BMW_13E_counter++;
       BMW_13E.data.u8[4] = BMW_13E_counter;
 
-      if (datalayer_battery->status.bms_status == FAULT) {
-      } else if (allows_contactor_closing) {
-        //If battery is not in Fault mode, and we are allowed to control contactors, we allow contactor to close by sending 10B
-        *allows_contactor_closing = true;
-        transmit_can_frame(&BMW_10B);
-      } else if (contactor_closing_allowed && *contactor_closing_allowed) {
-        transmit_can_frame(&BMW_10B);
+      // Only send 0x10B contactor command when inverter allows contactor closing
+      // When equipment stop is active or balancing mode, don't send 0x10B at all
+      if (datalayer.system.status.inverter_allows_contactor_closing) {
+        //if (startup_counter_contactor < 160) {
+        //  startup_counter_contactor++;
+        //} else {                      //After 160 messages, turn on the request
+        //  BMW_10B.data.u8[1] = 0x10;  // Close contactors
+        //}
+        BMW_10B.data.u8[1] = 0x10;  // Close contactors when inverter allows
+        BMW_10B.data.u8[1] = ((BMW_10B.data.u8[1] & 0xF0) + alive_counter_20ms);
+        BMW_10B.data.u8[0] = calculateCRC(BMW_10B, 3, 0x3F);
+
+        if (datalayer_battery->status.bms_status == FAULT) {
+        } else if (allows_contactor_closing) {
+          //If battery is not in Fault mode, and we are allowed to control contactors, we allow contactor to close by sending 10B
+          *allows_contactor_closing = true;
+          transmit_can_frame(&BMW_10B);
+        } else if (contactor_closing_allowed && *contactor_closing_allowed) {
+          transmit_can_frame(&BMW_10B);
+        }
       }
     }
 
