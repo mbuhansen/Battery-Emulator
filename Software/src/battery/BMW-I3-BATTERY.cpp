@@ -44,14 +44,8 @@ uint8_t BmwI3Battery::increment_alive_counter(uint8_t counter) {
 void BmwI3Battery::update_values() {  //This function maps all the values fetched via CAN to the battery datalayer
   if (datalayer.system.info.equipment_stop_active == true) {
     digitalWrite(wakeup_pin, LOW);  // Turn off wakeup pin
-    wakeup_pin_high_time = 0;       // Reset timer
   } else if (millis() > INTERVAL_1_S) {
-    if (wakeup_pin_high_time == 0) {
-      digitalWrite(wakeup_pin, HIGH);  // Wake up the battery
-      wakeup_pin_high_time = millis(); // Start timer
-    } else if (millis() - wakeup_pin_high_time > 5000) {
-      digitalWrite(wakeup_pin, LOW);   // Turn off after 5 seconds
-    }
+    digitalWrite(wakeup_pin, HIGH);  // Wake up the battery
   }
 
   if (!battery_awake) {
@@ -304,7 +298,7 @@ void BmwI3Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
       }
       // Handle single-frame balancing status response (DLC=7)
       // Format: F1 05 71 03 AD 75 [STATUS]
-      if (cmdState == READ_BALANCING_STATUS && rx_frame.DLC == 7 && rx_frame.data.u8[0] == 0xF1 && 
+      if (cmdState == READ_BALANCING_STATUS && rx_frame.DLC == 7 && rx_frame.data.u8[0] == 0xF1 &&
           rx_frame.data.u8[2] == 0x71 && rx_frame.data.u8[3] == 0x03) {
         battery_balancing_status = rx_frame.data.u8[6];
         // Parse status text based on value
@@ -339,16 +333,16 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
     if (currentMillis - previousMillis20 >= INTERVAL_20_MS) {
       previousMillis20 = currentMillis;
 
-      //if (startup_counter_contactor < 160) {
-      //  startup_counter_contactor++;
-      //} else {                      //After 160 messages, turn on the request
-      //  BMW_10B.data.u8[1] = 0x10;  // Close contactors
-      //}
-      if (datalayer.system.status.inverter_allows_contactor_closing) {
-        BMW_10B.data.u8[1] = 0x10;  // Close contactors when inverter allows
-      } else {
-        BMW_10B.data.u8[1] = 0x00;  // Keep contactors open when inverter doesn't allow
+      if (startup_counter_contactor < 160) {
+        startup_counter_contactor++;
+      } else {                      //After 160 messages, turn on the request
+        BMW_10B.data.u8[1] = 0x10;  // Close contactors
       }
+      //if (datalayer.system.status.inverter_allows_contactor_closing) {
+      //  BMW_10B.data.u8[1] = 0x10;  // Close contactors when inverter allows
+      //} else {
+      //  BMW_10B.data.u8[1] = 0x00;  // Keep contactors open when inverter doesn't allow
+      //}
 
       BMW_10B.data.u8[1] = ((BMW_10B.data.u8[1] & 0xF0) + alive_counter_20ms);
       BMW_10B.data.u8[0] = calculateCRC(BMW_10B, 3, 0x3F);
@@ -362,9 +356,9 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
       } else if (allows_contactor_closing) {
         //If battery is not in Fault mode, and we are allowed to control contactors, we allow contactor to close by sending 10B
         *allows_contactor_closing = true;
-        //transmit_can_frame(&BMW_10B);  // Disabled for charge mode - not sent when charging
+        transmit_can_frame(&BMW_10B);
       } else if (contactor_closing_allowed && *contactor_closing_allowed) {
-        //transmit_can_frame(&BMW_10B);  // Disabled for charge mode - not sent when charging
+        transmit_can_frame(&BMW_10B);
       }
     }
 
@@ -472,13 +466,13 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
       }
 
       next_data = 0;
-      
+
       // Check if user requested DTC reset
       if (UserRequestDTCreset) {
         UserRequestDTCreset = false;
         cmdState = CLEAR_DTC;
       }
-      
+
       switch (cmdState) {
         case SOC:
           transmit_can_frame(&BMW_6F1_CELL);
@@ -514,7 +508,7 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
           break;
         case CLEAR_DTC:
           transmit_can_frame(&BMW_6F1_CLEAR_DTC);
-          cmdState = SOC;  //jump back to normal polling
+          cmdState = SOC;               //jump back to normal polling
           UserRequestDTCreset = false;  // Clear flag after executing
           break;
         default:
