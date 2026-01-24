@@ -44,14 +44,8 @@ uint8_t BmwI3Battery::increment_alive_counter(uint8_t counter) {
 void BmwI3Battery::update_values() {  //This function maps all the values fetched via CAN to the battery datalayer
   if (datalayer.system.info.equipment_stop_active == true) {
     digitalWrite(wakeup_pin, LOW);  // Turn off wakeup pin
-    wakeup_pin_high_time = 0;       // Reset timer
   } else if (millis() > INTERVAL_1_S) {
-    if (wakeup_pin_high_time == 0) {
-      digitalWrite(wakeup_pin, HIGH);   // Wake up the battery
-      wakeup_pin_high_time = millis();  // Start timer
-    } else if (millis() - wakeup_pin_high_time > 5000) {
-      digitalWrite(wakeup_pin, LOW);  // Turn off after 5 seconds
-    }
+    digitalWrite(wakeup_pin, HIGH);  // Wake up the battery
   }
 
   if (!battery_awake) {
