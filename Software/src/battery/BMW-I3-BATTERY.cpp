@@ -52,13 +52,7 @@ void BmwI3Battery::update_values() {  //This function maps all the values fetche
     return;
   }
 
-  datalayer_battery->status.real_soc = (battery_display_SOC * 50);  //Always reaches 100%
-  if (datalayer_battery->status.real_soc == 10000) {                //If fully charged
-    if (datalayer_battery->status.max_charge_power_W > 0) {         //But still allowing power into battery
-      //Set SOC to 99.9% to avoid safety.cpp blocking balance-charge
-      datalayer_battery->status.real_soc = 9990;
-    }
-  }
+  datalayer_battery->status.real_soc = (battery_display_SOC * 50);
 
   datalayer_battery->status.voltage_dV = battery_volts;  //Unit V+1 (5000 = 500.0V)
 
@@ -298,7 +292,7 @@ void BmwI3Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
       }
       // Handle single-frame balancing status response (DLC=7)
       // Format: F1 05 71 03 AD 75 [STATUS]
-      if (cmdState == READ_BALANCING_STATUS && rx_frame.DLC == 7 && rx_frame.data.u8[0] == 0xF1 && 
+      if (cmdState == READ_BALANCING_STATUS && rx_frame.DLC == 7 && rx_frame.data.u8[0] == 0xF1 &&
           rx_frame.data.u8[2] == 0x71 && rx_frame.data.u8[3] == 0x03) {
         battery_balancing_status = rx_frame.data.u8[6];
         // Parse status text based on value
@@ -466,13 +460,13 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
       }
 
       next_data = 0;
-      
+
       // Check if user requested DTC reset
       if (UserRequestDTCreset) {
         UserRequestDTCreset = false;
         cmdState = CLEAR_DTC;
       }
-      
+
       switch (cmdState) {
         case SOC:
           transmit_can_frame(&BMW_6F1_CELL);
@@ -508,7 +502,7 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
           break;
         case CLEAR_DTC:
           transmit_can_frame(&BMW_6F1_CLEAR_DTC);
-          cmdState = SOC;  //jump back to normal polling
+          cmdState = SOC;               //jump back to normal polling
           UserRequestDTCreset = false;  // Clear flag after executing
           break;
         default:

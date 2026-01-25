@@ -334,11 +334,6 @@ void KostalInverterProtocol::receive()  // Runs as fast as possible to handle th
                   send_kostal(tmpframe, 40);
                   info_sent = true;
 
-                  //if (datalayer.system.status.inverter_allows_contactor_closing) {
-                  //  digitalWrite(SECONDARY_CONTACTOR_PIN, HIGH);            Laver Fejl når inverter genstarter.
-                  //  dbg_message("gpio_contactor_open (Battery info sent - inverter restart)");
-                  //}
-
                   if (!startupMillis) {
                     startupMillis = currentMillis;
                     // startuptimer run first time info sent.
