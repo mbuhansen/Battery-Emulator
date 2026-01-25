@@ -49,8 +49,7 @@ std::vector<BatteryCommand> battery_commands = {
      [](Battery* b) { return b && b->supports_energy_saving_mode_reset(); },
      [](Battery* b) { b->reset_energy_saving_mode(); }},
     {"triggerBalancing", "Trigger Cell Balancing (4010mV)", "trigger cell balancing at 4010mV threshold?",
-     [](Battery* b) { return b && b->supports_trigger_balancing(); },
-     [](Battery* b) { b->trigger_balancing(4010); }},
+     [](Battery* b) { return b && b->supports_trigger_balancing(); }, [](Battery* b) { b->trigger_balancing(4010); }},
 };
 
 String advanced_battery_processor(const String& var) {

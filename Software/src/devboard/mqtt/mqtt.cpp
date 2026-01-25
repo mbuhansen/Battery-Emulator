@@ -278,7 +278,7 @@ void set_battery_attributes(JsonDocument& doc, const DATALAYER_BATTERY_TYPE& bat
   }
   doc["balancing_active_cells" + suffix] = active_cells;
   doc["balancing_status" + suffix] = get_balancing_status_text(battery.status.balancing_status);
-  
+
   // Add BMW i3 specific balancing status value if available
   if (battery.status.bmw_i3_balancing_status_value != 255) {
     doc["bmw_i3_balancing_status_value" + suffix] = battery.status.bmw_i3_balancing_status_value;

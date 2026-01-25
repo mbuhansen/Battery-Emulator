@@ -102,14 +102,15 @@ class BmwI3Battery : public CanBattery {
 
   gpio_num_t wakeup_pin;
 
-  unsigned long previousMillis20 = 0;     // will store last time a 20ms CAN Message was send
-  unsigned long previousMillis100 = 0;    // will store last time a 100ms CAN Message was send
-  unsigned long previousMillis200 = 0;    // will store last time a 200ms CAN Message was send
-  unsigned long previousMillis500 = 0;    // will store last time a 500ms CAN Message was send
-  unsigned long previousMillis640 = 0;    // will store last time a 600ms CAN Message was send
-  unsigned long previousMillis1000 = 0;   // will store last time a 1000ms CAN Message was send
-  unsigned long previousMillis5000 = 0;   // will store last time a 5000ms CAN Message was send
-  unsigned long previousMillis10000 = 0;  // will store last time a 10000ms CAN Message was send
+  unsigned long previousMillis20 = 0;      // will store last time a 20ms CAN Message was send
+  unsigned long previousMillis100 = 0;     // will store last time a 100ms CAN Message was send
+  unsigned long previousMillis200 = 0;     // will store last time a 200ms CAN Message was send
+  unsigned long previousMillis500 = 0;     // will store last time a 500ms CAN Message was send
+  unsigned long previousMillis640 = 0;     // will store last time a 600ms CAN Message was send
+  unsigned long previousMillis1000 = 0;    // will store last time a 1000ms CAN Message was send
+  unsigned long previousMillis5000 = 0;    // will store last time a 5000ms CAN Message was send
+  unsigned long previousMillis10000 = 0;   // will store last time a 10000ms CAN Message was send
+  unsigned long wakeup_pin_high_time = 0;  // will store when wakeup pin was set HIGH
 
   static const int ALIVE_MAX_VALUE = 14;  // BMW CAN messages contain alive counter, goes from 0...14
 
@@ -118,7 +119,15 @@ class BmwI3Battery : public CanBattery {
   enum BatterySize { BATTERY_60AH, BATTERY_94AH, BATTERY_120AH };
   BatterySize detectedBattery = BATTERY_60AH;
 
-  enum CmdState { SOC, CELL_VOLTAGE_MINMAX, SOH, CELL_VOLTAGE_CELLNO, CELL_VOLTAGE_CELLNO_LAST, READ_BALANCING_STATUS, CLEAR_DTC };
+  enum CmdState {
+    SOC,
+    CELL_VOLTAGE_MINMAX,
+    SOH,
+    CELL_VOLTAGE_CELLNO,
+    CELL_VOLTAGE_CELLNO_LAST,
+    READ_BALANCING_STATUS,
+    CLEAR_DTC
+  };
 
   CmdState cmdState = SOC;
 
@@ -127,11 +136,12 @@ class BmwI3Battery : public CanBattery {
      3E9 32F 19E 326 55E 515 509 50A 51A 2F5 3A4 432 3C9 
      */
 
-  static constexpr CAN_frame BMW_108 = {.FD = false,
-                                        .ext_ID = false,
-                                        .DLC = 8,
-                                        .ID = 0x108,
-                                        .data = {0x00, 0x7D, 0xFF, 0xFF, 0x07, 0xF1, 0xFF, 0xFF}};  // Actual Charging Electronics Data
+  static constexpr CAN_frame BMW_108 = {
+      .FD = false,
+      .ext_ID = false,
+      .DLC = 8,
+      .ID = 0x108,
+      .data = {0x00, 0x7D, 0xFF, 0xFF, 0x07, 0xF1, 0xFF, 0xFF}};  // Actual Charging Electronics Data
   CAN_frame BMW_10B = {.FD = false,
                        .ext_ID = false,
                        .DLC = 3,
@@ -157,11 +167,12 @@ class BmwI3Battery : public CanBattery {
                        .DLC = 8,
                        .ID = 0x19B,
                        .data = {0x20, 0x40, 0x40, 0x55, 0xFD, 0xFF, 0xFF, 0xFF}};
-  static constexpr CAN_frame BMW_19E = {.FD = false,
-                                        .ext_ID = false,
-                                        .DLC = 8,
-                                        .ID = 0x19E,
-                                        .data = {0x0A, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF}};  // Subsystems Control
+  static constexpr CAN_frame BMW_19E = {
+      .FD = false,
+      .ext_ID = false,
+      .DLC = 8,
+      .ID = 0x19E,
+      .data = {0x0A, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF}};  // Subsystems Control
   CAN_frame BMW_1D0 = {.FD = false,
                        .ext_ID = false,
                        .DLC = 8,
@@ -317,11 +328,12 @@ class BmwI3Battery : public CanBattery {
                                                       .ext_ID = false,
                                                       .DLC = 6,
                                                       .ID = 0x6F4,
-                                                      .data = {0x07, 0x04, 0x31, 0x03, 0xAD, 0x6E}};  static constexpr CAN_frame BMW_6F1_BALANCING_STATUS = {.FD = false,
-                                                       .ext_ID = false,
-                                                       .DLC = 6,
-                                                       .ID = 0x6F1,
-                                                       .data = {0x07, 0x04, 0x31, 0x03, 0xAD, 0x75}};
+                                                      .data = {0x07, 0x04, 0x31, 0x03, 0xAD, 0x6E}};
+  static constexpr CAN_frame BMW_6F1_BALANCING_STATUS = {.FD = false,
+                                                         .ext_ID = false,
+                                                         .DLC = 6,
+                                                         .ID = 0x6F1,
+                                                         .data = {0x07, 0x04, 0x31, 0x03, 0xAD, 0x75}};
   //The above CAN messages need to be sent towards the battery to keep it alive
 
   uint8_t startup_counter_contactor = 0;
