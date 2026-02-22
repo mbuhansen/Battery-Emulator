@@ -316,7 +316,7 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
       }
       */
 
-            if (datalayer.system.status.inverter_allows_contactor_closing) {
+      if (datalayer.system.status.inverter_allows_contactor_closing) {
         BMW_10B.data.u8[1] = 0x10;  // Close contactors
       } else {
         BMW_10B.data.u8[1] = 0x00;  // Keep contactors open
