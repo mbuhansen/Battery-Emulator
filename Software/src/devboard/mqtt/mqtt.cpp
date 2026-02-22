@@ -9,6 +9,7 @@
 #include "../../datalayer/datalayer.h"
 #include "../../devboard/hal/hal.h"
 #include "../../devboard/safety/safety.h"
+#include "../../inverter/KOSTAL-RS485.h"
 #include "../../lib/bblanchon-ArduinoJson/ArduinoJson.h"
 #include "../utils/events.h"
 #include "../utils/timer.h"
@@ -100,6 +101,7 @@ struct SensorConfig {
   const char* value_template;
   const char* unit;
   const char* device_class;
+  int8_t suggested_display_precision;  // -1 means not set, otherwise 0-3 decimals
 
   // A function that returns true for the battery if it supports this config
   std::function<bool(Battery*)> condition;
@@ -113,32 +115,34 @@ static std::function<bool(Battery*)> supports_charged = [](Battery* b) {
 };
 
 SensorConfig batterySensorConfigTemplate[] = {
-    {"SOC", "SOC (Scaled)", "", "%", "battery", always},
-    {"SOC_real", "SOC (real)", "", "%", "battery", always},
-    {"state_of_health", "State Of Health", "", "%", "battery", always},
-    {"temperature_min", "Temperature Min", "", "°C", "temperature", always},
-    {"temperature_max", "Temperature Max", "", "°C", "temperature", always},
-    {"cpu_temp", "CPU Temperature", "", "°C", "temperature", always},
-    {"stat_batt_power", "Stat Batt Power", "", "W", "power", always},
-    {"battery_current", "Battery Current", "", "A", "current", always},
-    {"cell_max_voltage", "Cell Max Voltage", "", "V", "voltage", always},
-    {"cell_min_voltage", "Cell Min Voltage", "", "V", "voltage", always},
-    {"cell_voltage_delta", "Cell Voltage Delta", "", "mV", "voltage", always},
-    {"battery_voltage", "Battery Voltage", "", "V", "voltage", always},
-    {"total_capacity", "Battery Total Capacity", "", "Wh", "energy", always},
-    {"remaining_capacity", "Battery Remaining Capacity (scaled)", "", "Wh", "energy", always},
-    {"remaining_capacity_real", "Battery Remaining Capacity (real)", "", "Wh", "energy", always},
-    {"max_discharge_power", "Battery Max Discharge Power", "", "W", "power", always},
-    {"max_charge_power", "Battery Max Charge Power", "", "W", "power", always},
-    {"charged_energy", "Battery Charged Energy", "", "Wh", "energy", supports_charged},
-    {"discharged_energy", "Battery Discharged Energy", "", "Wh", "energy", supports_charged},
-    {"balancing_active_cells", "Balancing Active Cells", "", "", "", always},
-    {"balancing_status", "Balancing Status", "", "", "", always}};
+    {"SOC", "SOC (Scaled)", "", "%", "battery", -1, always},
+    {"SOC_real", "SOC (real)", "", "%", "battery", -1, always},
+    {"state_of_health", "State Of Health", "", "%", "battery", -1, always},
+    {"temperature_min", "Temperature Min", "", "°C", "temperature", -1, always},
+    {"temperature_max", "Temperature Max", "", "°C", "temperature", -1, always},
+    {"cpu_temp", "CPU Temperature", "", "°C", "temperature", -1, always},
+    {"stat_batt_power", "Stat Batt Power", "", "W", "power", -1, always},
+    {"battery_current", "Battery Current", "", "A", "current", -1, always},
+    {"cell_max_voltage", "Cell Max Voltage", "", "V", "voltage", 3, always},
+    {"cell_min_voltage", "Cell Min Voltage", "", "V", "voltage", 3, always},
+    {"cell_voltage_delta", "Cell Voltage Delta", "", "mV", "voltage", -1, always},
+    {"battery_voltage", "Battery Voltage", "", "V", "voltage", -1, always},
+    {"total_capacity", "Battery Total Capacity", "", "Wh", "energy", -1, always},
+    {"remaining_capacity", "Battery Remaining Capacity (scaled)", "", "Wh", "energy", -1, always},
+    {"remaining_capacity_real", "Battery Remaining Capacity (real)", "", "Wh", "energy", -1, always},
+    {"max_discharge_power", "Battery Max Discharge Power", "", "W", "power", -1, always},
+    {"max_charge_power", "Battery Max Charge Power", "", "W", "power", -1, always},
+    {"charged_energy", "Battery Charged Energy", "", "Wh", "energy", -1, supports_charged},
+    {"discharged_energy", "Battery Discharged Energy", "", "Wh", "energy", -1, supports_charged},
+    {"balancing_active_cells", "Balancing Active Cells", "", "", "", -1, always},
+    {"balancing_status", "Balancing Status", "", "", "", -1, always}};
 
-SensorConfig globalSensorConfigTemplate[] = {{"bms_status", "BMS Status", "", "", "", always},
-                                             {"pause_status", "Pause Status", "", "", "", always},
-                                             {"event_level", "Event Level", "", "", "", always},
-                                             {"emulator_status", "Emulator Status", "", "", "", always}};
+SensorConfig globalSensorConfigTemplate[] = {
+    {"bms_status", "BMS Status", "", "", "", -1, always},
+    {"pause_status", "Pause Status", "", "", "", -1, always},
+    {"event_level", "Event Level", "", "", "", -1, always},
+    {"emulator_status", "Emulator Status", "", "", "", -1, always},
+    {"secondary_contactor_state", "Secondary Contactor State", "", "", "", -1, always}};
 
 static std::list<SensorConfig> sensorConfigs;
 
@@ -165,11 +169,13 @@ void create_global_sensor_configs() {
   }
 }
 
-SensorConfig buttonConfigs[] = {{"BMSRESET", "Reset BMS", nullptr, nullptr, nullptr, nullptr},
-                                {"PAUSE", "Pause charge/discharge", nullptr, nullptr, nullptr, nullptr},
-                                {"RESUME", "Resume charge/discharge", nullptr, nullptr, nullptr, nullptr},
-                                {"RESTART", "Restart Battery Emulator", nullptr, nullptr, nullptr, nullptr},
-                                {"STOP", "Open Contactors", nullptr, nullptr, nullptr, nullptr}};
+SensorConfig buttonConfigs[] = {{"BMSRESET", "Reset BMS", nullptr, nullptr, nullptr, -1, nullptr},
+                                {"PAUSE", "Pause charge/discharge", nullptr, nullptr, nullptr, -1, nullptr},
+                                {"RESUME", "Resume charge/discharge", nullptr, nullptr, nullptr, -1, nullptr},
+                                {"RESTART", "Restart Battery Emulator", nullptr, nullptr, nullptr, -1, nullptr},
+                                {"STOP", "Open Contactors", nullptr, nullptr, nullptr, -1, nullptr},
+                                {"CONTACTOR_HIGH", "Open Secondary Contactor", nullptr, nullptr, nullptr, -1, nullptr},
+                                {"CONTACTOR_LOW", "Close Secondary Contactor", nullptr, nullptr, nullptr, -1, nullptr}};
 
 static String generateCommonInfoAutoConfigTopic(const char* object_id) {
   return "homeassistant/sensor/" + topic_name + "/" + String(object_id) + "/config";
@@ -207,6 +213,7 @@ void set_battery_voltage_attributes(JsonDocument& doc, int i, int cellNumber, co
   doc["state_class"] = "measurement";
   doc["state_topic"] = state_topic;
   doc["unit_of_measurement"] = "V";
+  doc["suggested_display_precision"] = 3;
   doc["value_template"] = "{{ value_json.cell_voltages[" + String(i) + "] }}";
 }
 
@@ -299,6 +306,9 @@ static bool publish_common_info(void) {
         doc["device_class"] = config.device_class;
         doc["state_class"] = "measurement";
       }
+      if (config.suggested_display_precision >= 0) {
+        doc["suggested_display_precision"] = config.suggested_display_precision;
+      }
       set_common_discovery_attributes(doc);
       serializeJson(doc, mqtt_msg);
       if (mqtt_publish(generateCommonInfoAutoConfigTopic(config.object_id).c_str(), mqtt_msg, true)) {
@@ -327,8 +337,9 @@ static bool publish_common_info(void) {
 
     doc["event_level"] = get_event_level_string(get_event_level());
     doc["emulator_status"] = get_emulator_status_string(get_emulator_status());
+    doc["secondary_contactor_state"] = digitalRead(SECONDARY_CONTACTOR_PIN);
 
-    serializeJson(doc, mqtt_msg);
+    serializeJson(doc, mqtt_msg, sizeof(mqtt_msg));
     if (mqtt_publish(state_topic.c_str(), mqtt_msg, false) == false) {
       logging.println("Common info MQTT msg could not be sent");
       return false;
@@ -596,6 +607,16 @@ void mqtt_message_received(char* topic_raw, int topic_len, char* data, int data_
 
   if (strcmp(topic, generateButtonTopic("STOP").c_str()) == 0) {
     setBatteryPause(true, false, true);
+  }
+
+  if (strcmp(topic, generateButtonTopic("CONTACTOR_HIGH").c_str()) == 0) {
+    digitalWrite(SECONDARY_CONTACTOR_PIN, HIGH);
+    logging.println("MQTT: Secondary Contactor set to HIGH (Open)");
+  }
+
+  if (strcmp(topic, generateButtonTopic("CONTACTOR_LOW").c_str()) == 0) {
+    digitalWrite(SECONDARY_CONTACTOR_PIN, LOW);
+    logging.println("MQTT: Secondary Contactor set to LOW (Close)");
   }
 
   if (strcmp(topic, generateButtonTopic("SET_LIMITS").c_str()) == 0) {
