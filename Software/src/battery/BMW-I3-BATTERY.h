@@ -68,8 +68,10 @@ class BmwI3Battery : public CanBattery {
   uint8_t ST_isolation() { return battery_status_warning_isolation; }
   // Status cold shutoff valve, 0 OK, 1 Short circuit to GND, 2 Short circuit to 12V, 3 Line break, 6 Driver error, 12 Stuck, 13 Stuck, 15 Invalid Signal
   uint8_t ST_cold_shutoff_valve() { return battery_status_cold_shutoff_valve; }
-  // Status balancing
+  // Raw internal offline balancing process state (NONE/REQUESTED/STARTING/EXECUTING)
   uint8_t ST_balancing_status() { return UserRequestBalancing; }
+  // Derived balancing recommendation status written to datalayer
+  balancing_status_enum ST_balancing_recommendation() { return datalayer_battery->status.balancing_status; }
 
   BatteryHtmlRenderer& get_status_renderer() { return renderer; }
 

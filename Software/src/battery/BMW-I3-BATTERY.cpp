@@ -112,6 +112,25 @@ void BmwI3Battery::update_values() {  //This function maps all the values fetche
   } else {
     clear_event(EVENT_CONTACTOR_WELDED);
   }
+
+  // Determine balancing status (battery does not report balancing over CAN)
+  if (UserRequestBalancing == REQUESTED || UserRequestBalancing == STARTING || UserRequestBalancing == EXECUTING) {
+    // Offline balancing has been initiated - report as active
+    datalayer_battery->status.balancing_status = BALANCING_STATUS_ACTIVE;
+  } else {
+    uint16_t cell_diff_mV =
+        datalayer_battery->status.cell_max_voltage_mV - datalayer_battery->status.cell_min_voltage_mV;
+    if (datalayer_battery->status.real_soc < 6000) {
+      // SOC below 60% - battery does not permit balancing yet
+      datalayer_battery->status.balancing_status = BALANCING_STATUS_SOC_TOO_LOW;
+    } else if (cell_diff_mV > 10) {
+      // SOC >= 60% and cell spread > 10 mV: recommend balancing
+      datalayer_battery->status.balancing_status = BALANCING_STATUS_READY;
+    } else {
+      // SOC >= 60% and cell deviation is small - no balancing needed
+      datalayer_battery->status.balancing_status = BALANCING_STATUS_NOT_NEEDED;
+    }
+  }
 }
 
 void BmwI3Battery::handle_incoming_can_frame(CAN_frame rx_frame) {

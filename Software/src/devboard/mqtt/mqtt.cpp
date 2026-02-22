@@ -169,7 +169,9 @@ SensorConfig buttonConfigs[] = {{"BMSRESET", "Reset BMS", nullptr, nullptr, null
                                 {"PAUSE", "Pause charge/discharge", nullptr, nullptr, nullptr, nullptr},
                                 {"RESUME", "Resume charge/discharge", nullptr, nullptr, nullptr, nullptr},
                                 {"RESTART", "Restart Battery Emulator", nullptr, nullptr, nullptr, nullptr},
-                                {"STOP", "Open Contactors", nullptr, nullptr, nullptr, nullptr}};
+                                {"STOP", "Open Contactors", nullptr, nullptr, nullptr, nullptr},
+                                {"BALANCE_START", "Start Offline Balancing", nullptr, nullptr, nullptr, nullptr},
+                                {"BALANCE_STOP", "Stop Offline Balancing", nullptr, nullptr, nullptr, nullptr}};
 
 static String generateCommonInfoAutoConfigTopic(const char* object_id) {
   return "homeassistant/sensor/" + topic_name + "/" + String(object_id) + "/config";
@@ -224,6 +226,10 @@ static const char* get_balancing_status_text(balancing_status_enum status) {
       return "Ready";
     case BALANCING_STATUS_ACTIVE:
       return "Active";
+    case BALANCING_STATUS_NOT_NEEDED:
+      return "Not needed";
+    case BALANCING_STATUS_SOC_TOO_LOW:
+      return "SOC too low";
     default:
       return "Unknown";
   }
@@ -596,6 +602,20 @@ void mqtt_message_received(char* topic_raw, int topic_len, char* data, int data_
 
   if (strcmp(topic, generateButtonTopic("STOP").c_str()) == 0) {
     setBatteryPause(true, false, true);
+  }
+
+  if (strcmp(topic, generateButtonTopic("BALANCE_START").c_str()) == 0) {
+    if (battery && battery->supports_offline_balancing()) {
+      logging.println("MQTT: Starting offline balancing");
+      battery->initiate_offline_balancing();
+    }
+  }
+
+  if (strcmp(topic, generateButtonTopic("BALANCE_STOP").c_str()) == 0) {
+    if (battery && battery->supports_offline_balancing()) {
+      logging.println("MQTT: Stopping offline balancing");
+      battery->end_offline_balancing();
+    }
   }
 
   if (strcmp(topic, generateButtonTopic("SET_LIMITS").c_str()) == 0) {
