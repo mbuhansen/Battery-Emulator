@@ -112,8 +112,8 @@ String BmwI3HtmlRenderer::get_status_html() {
   content +=
       "<h4>Balancing status: " + String(safeArrayAccess(balancingText, 16, batt.ST_balancing_status())) + "</h4>";
 
-  static const char* balancingRecommendText[] = {"Unknown", "Error", "Ready - charge to 60%+ and start balancing",
-                                                  "Active", "Not needed", "SOC too low (<60%)" };
+  static const char* balancingRecommendText[] = {"Unknown", "Error",      "Ready - charge to 60%+ and start balancing",
+                                                 "Active",  "Not needed", "SOC too low (<60%)"};
   content += "<h4>Balancing recommendation: " +
              String(safeArrayAccess(balancingRecommendText, 6, (int)batt.ST_balancing_recommendation())) + "</h4>";
 
