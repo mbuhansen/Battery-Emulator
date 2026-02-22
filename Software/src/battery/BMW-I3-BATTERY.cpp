@@ -308,11 +308,18 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
     //Send 20ms message
     if (currentMillis - previousMillis20 >= INTERVAL_20_MS) {
       previousMillis20 = currentMillis;
-
+      /*
       if (startup_counter_contactor < 160) {
         startup_counter_contactor++;
       } else {                      //After 160 messages, turn on the request
         BMW_10B.data.u8[1] = 0x10;  // Close contactors
+      }
+      */
+
+            if (datalayer.system.status.inverter_allows_contactor_closing) {
+        BMW_10B.data.u8[1] = 0x10;  // Close contactors
+      } else {
+        BMW_10B.data.u8[1] = 0x00;  // Keep contactors open
       }
 
       BMW_10B.data.u8[1] = ((BMW_10B.data.u8[1] & 0xF0) + alive_counter_20ms);

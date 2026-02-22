@@ -169,8 +169,8 @@ void KostalInverterProtocol::update_values() {
       // Contactors closed - send actual current
       if (user_selected_second_battery) {
         // Use combined current from both batteries
-        float2frame(CYCLIC_DATA, (float)datalayer.system.status.combined_battery_current_dA / 10, 18);  // Last current
-        float2frame(CYCLIC_DATA, (float)datalayer.system.status.combined_battery_current_dA / 10,
+        float2frame(CYCLIC_DATA, (float)datalayer.battery.status.reported_current_dA / 10, 18);  // Last current
+        float2frame(CYCLIC_DATA, (float)datalayer.battery.status.reported_current_dA / 10,
                     22);  // Avg current(1s)
       } else {
         // Use single battery current
@@ -331,17 +331,6 @@ void KostalInverterProtocol::receive()  // Runs as fast as possible to handle th
                   CYCLIC_DATA[61] = 0x00;
                 }
                 if (code == 0x84a) {
-                  // Increment f1_info_count and check if we should open SECONDARY_CONTACTOR_PIN
-                  // Increment f1_info_count
-                  f1_info_count++;
-
-                  // Open SECONDARY_CONTACTOR_PIN after 8 battery info requests, then reset to 1
-                  if (f1_info_count >= 8) {
-                    digitalWrite(SECONDARY_CONTACTOR_PIN, HIGH);
-                    dbg_message("GPIO33 -> HIGH (8 battery info requests received)");
-                    f1_info_count = 1;  // Reset to 1 so it opens again after 7 more requests
-                  }
-
                   // Reset f2_startup_count when battery info is requested (inverter restart)
                   f2_startup_count = 0;
                   pendingContactorCloseRequest = false;  // Clear any pending request on restart
