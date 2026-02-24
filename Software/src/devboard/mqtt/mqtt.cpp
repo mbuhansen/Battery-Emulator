@@ -113,29 +113,33 @@ static std::function<bool(Battery*)> always = [](Battery* b) {
 static std::function<bool(Battery*)> supports_charged = [](Battery* b) {
   return b->supports_charged_energy();
 };
+static std::function<bool(Battery*)> supports_offline_bal = [](Battery* b) {
+  return b && b->supports_offline_balancing();
+};
 
 SensorConfig batterySensorConfigTemplate[] = {
-    {"SOC", "SOC (Scaled)", "", "%", "battery", -1, always},
-    {"SOC_real", "SOC (real)", "", "%", "battery", -1, always},
-    {"state_of_health", "State Of Health", "", "%", "battery", -1, always},
-    {"temperature_min", "Temperature Min", "", "°C", "temperature", -1, always},
-    {"temperature_max", "Temperature Max", "", "°C", "temperature", -1, always},
-    {"cpu_temp", "CPU Temperature", "", "°C", "temperature", -1, always},
-    {"stat_batt_power", "Stat Batt Power", "", "W", "power", -1, always},
-    {"battery_current", "Battery Current", "", "A", "current", -1, always},
-    {"cell_max_voltage", "Cell Max Voltage", "", "V", "voltage", 3, always},
-    {"cell_min_voltage", "Cell Min Voltage", "", "V", "voltage", 3, always},
-    {"cell_voltage_delta", "Cell Voltage Delta", "", "mV", "voltage", -1, always},
-    {"battery_voltage", "Battery Voltage", "", "V", "voltage", -1, always},
-    {"total_capacity", "Battery Total Capacity", "", "Wh", "energy", -1, always},
-    {"remaining_capacity", "Battery Remaining Capacity (scaled)", "", "Wh", "energy", -1, always},
-    {"remaining_capacity_real", "Battery Remaining Capacity (real)", "", "Wh", "energy", -1, always},
-    {"max_discharge_power", "Battery Max Discharge Power", "", "W", "power", -1, always},
-    {"max_charge_power", "Battery Max Charge Power", "", "W", "power", -1, always},
-    {"charged_energy", "Battery Charged Energy", "", "Wh", "energy", -1, supports_charged},
-    {"discharged_energy", "Battery Discharged Energy", "", "Wh", "energy", -1, supports_charged},
-    {"balancing_active_cells", "Balancing Active Cells", "", "", "", -1, always},
-    {"balancing_status", "Balancing Status", "", "", "", -1, always}};
+    {"SOC", "SOC (Scaled)", "", "%", "battery", always},
+    {"SOC_real", "SOC (real)", "", "%", "battery", always},
+    {"state_of_health", "State Of Health", "", "%", "battery", always},
+    {"temperature_min", "Temperature Min", "", "°C", "temperature", always},
+    {"temperature_max", "Temperature Max", "", "°C", "temperature", always},
+    {"cpu_temp", "CPU Temperature", "", "°C", "temperature", always},
+    {"stat_batt_power", "Stat Batt Power", "", "W", "power", always},
+    {"battery_current", "Battery Current", "", "A", "current", always},
+    {"cell_max_voltage", "Cell Max Voltage", "", "V", "voltage", always},
+    {"cell_min_voltage", "Cell Min Voltage", "", "V", "voltage", always},
+    {"cell_voltage_delta", "Cell Voltage Delta", "", "mV", "voltage", always},
+    {"battery_voltage", "Battery Voltage", "", "V", "voltage", always},
+    {"total_capacity", "Battery Total Capacity", "", "Wh", "energy", always},
+    {"remaining_capacity", "Battery Remaining Capacity (scaled)", "", "Wh", "energy", always},
+    {"remaining_capacity_real", "Battery Remaining Capacity (real)", "", "Wh", "energy", always},
+    {"max_discharge_power", "Battery Max Discharge Power", "", "W", "power", always},
+    {"max_charge_power", "Battery Max Charge Power", "", "W", "power", always},
+    {"charged_energy", "Battery Charged Energy", "", "Wh", "energy", supports_charged},
+    {"discharged_energy", "Battery Discharged Energy", "", "Wh", "energy", supports_charged},
+    {"balancing_active_cells", "Balancing Active Cells", "", "", "", always},
+    {"balancing_status", "Balancing Status", "", "", "", always},
+    {"offline_balancing_mode", "Offline Balancing Mode", "", "", "", supports_offline_bal}};
 
 SensorConfig globalSensorConfigTemplate[] = {
     {"bms_status", "BMS Status", "", "", "", -1, always},
@@ -169,13 +173,15 @@ void create_global_sensor_configs() {
   }
 }
 
-SensorConfig buttonConfigs[] = {{"BMSRESET", "Reset BMS", nullptr, nullptr, nullptr, -1, nullptr},
-                                {"PAUSE", "Pause charge/discharge", nullptr, nullptr, nullptr, -1, nullptr},
-                                {"RESUME", "Resume charge/discharge", nullptr, nullptr, nullptr, -1, nullptr},
-                                {"RESTART", "Restart Battery Emulator", nullptr, nullptr, nullptr, -1, nullptr},
-                                {"STOP", "Open Contactors", nullptr, nullptr, nullptr, -1, nullptr},
-                                {"CONTACTOR_HIGH", "Open Secondary Contactor", nullptr, nullptr, nullptr, -1, nullptr},
-                                {"CONTACTOR_LOW", "Close Secondary Contactor", nullptr, nullptr, nullptr, -1, nullptr}};
+SensorConfig buttonConfigs[] = {{"BMSRESET", "Reset BMS", nullptr, nullptr, nullptr, nullptr},
+                                {"PAUSE", "Pause charge/discharge", nullptr, nullptr, nullptr, nullptr},
+                                {"RESUME", "Resume charge/discharge", nullptr, nullptr, nullptr, nullptr},
+                                {"RESTART", "Restart Battery Emulator", nullptr, nullptr, nullptr, nullptr},
+                                {"STOP", "Open Contactors", nullptr, nullptr, nullptr, nullptr},
+                                {"BALANCING", "Balancing", nullptr, nullptr, nullptr,
+                                 [](Battery* b) { return b && b->supports_offline_balancing(); }},
+                                {"STOP_BALANCING", "Stop Balancing Mode", nullptr, nullptr, nullptr,
+                                 [](Battery* b) { return b && b->supports_offline_balancing(); }}};
 
 static String generateCommonInfoAutoConfigTopic(const char* object_id) {
   return "homeassistant/sensor/" + topic_name + "/" + String(object_id) + "/config";
@@ -326,12 +332,18 @@ static bool publish_common_info(void) {
     //only publish these values if BMS is active and we are comunication  with the battery (can send CAN messages to the battery)
     if (datalayer.battery.status.CAN_battery_still_alive && allowed_to_send_CAN && esp32hal->system_booted_up()) {
       set_battery_attributes(doc, datalayer.battery, "", battery->supports_charged_energy());
+      if (battery->supports_offline_balancing()) {
+        doc["offline_balancing_mode"] = battery->get_offline_balancing_state_string();
+      }
     }
 
     if (battery2) {
       //only publish these values if BMS is active and we are comunication  with the battery (can send CAN messages to the battery)
       if (datalayer.battery2.status.CAN_battery_still_alive && allowed_to_send_CAN && esp32hal->system_booted_up()) {
         set_battery_attributes(doc, datalayer.battery2, "_2", battery2->supports_charged_energy());
+        if (battery2->supports_offline_balancing()) {
+          doc["offline_balancing_mode_2"] = battery2->get_offline_balancing_state_string();
+        }
       }
     }
 
@@ -557,6 +569,9 @@ static bool publish_buttons_discovery(void) {
       static JsonDocument doc;
       for (int i = 0; i < sizeof(buttonConfigs) / sizeof(buttonConfigs[0]); i++) {
         SensorConfig& config = buttonConfigs[i];
+        if (config.condition && !config.condition(battery)) {
+          continue;
+        }
         doc["name"] = config.name;
         doc["unique_id"] = object_id_prefix + config.object_id;
         doc["command_topic"] = generateButtonTopic(config.object_id);
@@ -609,14 +624,18 @@ void mqtt_message_received(char* topic_raw, int topic_len, char* data, int data_
     setBatteryPause(true, false, true);
   }
 
-  if (strcmp(topic, generateButtonTopic("CONTACTOR_HIGH").c_str()) == 0) {
-    digitalWrite(SECONDARY_CONTACTOR_PIN, HIGH);
-    logging.println("MQTT: Secondary Contactor set to HIGH (Open)");
+  if (strcmp(topic, generateButtonTopic("BALANCING").c_str()) == 0) {
+    if (battery && battery->supports_offline_balancing() && !battery->is_offline_balancing_active()) {
+      logging.println("Starting offline balancing mode");
+      battery->initiate_offline_balancing();
+    }
   }
 
-  if (strcmp(topic, generateButtonTopic("CONTACTOR_LOW").c_str()) == 0) {
-    digitalWrite(SECONDARY_CONTACTOR_PIN, LOW);
-    logging.println("MQTT: Secondary Contactor set to LOW (Close)");
+  if (strcmp(topic, generateButtonTopic("STOP_BALANCING").c_str()) == 0) {
+    if (battery && battery->supports_offline_balancing() && battery->is_offline_balancing_active()) {
+      logging.println("Stopping offline balancing mode");
+      battery->end_offline_balancing();
+    }
   }
 
   if (strcmp(topic, generateButtonTopic("SET_LIMITS").c_str()) == 0) {
