@@ -118,28 +118,28 @@ static std::function<bool(Battery*)> supports_offline_bal = [](Battery* b) {
 };
 
 SensorConfig batterySensorConfigTemplate[] = {
-    {"SOC", "SOC (Scaled)", "", "%", "battery", always},
-    {"SOC_real", "SOC (real)", "", "%", "battery", always},
-    {"state_of_health", "State Of Health", "", "%", "battery", always},
-    {"temperature_min", "Temperature Min", "", "°C", "temperature", always},
-    {"temperature_max", "Temperature Max", "", "°C", "temperature", always},
-    {"cpu_temp", "CPU Temperature", "", "°C", "temperature", always},
-    {"stat_batt_power", "Stat Batt Power", "", "W", "power", always},
-    {"battery_current", "Battery Current", "", "A", "current", always},
-    {"cell_max_voltage", "Cell Max Voltage", "", "V", "voltage", always},
-    {"cell_min_voltage", "Cell Min Voltage", "", "V", "voltage", always},
-    {"cell_voltage_delta", "Cell Voltage Delta", "", "mV", "voltage", always},
-    {"battery_voltage", "Battery Voltage", "", "V", "voltage", always},
-    {"total_capacity", "Battery Total Capacity", "", "Wh", "energy", always},
-    {"remaining_capacity", "Battery Remaining Capacity (scaled)", "", "Wh", "energy", always},
-    {"remaining_capacity_real", "Battery Remaining Capacity (real)", "", "Wh", "energy", always},
-    {"max_discharge_power", "Battery Max Discharge Power", "", "W", "power", always},
-    {"max_charge_power", "Battery Max Charge Power", "", "W", "power", always},
-    {"charged_energy", "Battery Charged Energy", "", "Wh", "energy", supports_charged},
-    {"discharged_energy", "Battery Discharged Energy", "", "Wh", "energy", supports_charged},
-    {"balancing_active_cells", "Balancing Active Cells", "", "", "", always},
-    {"balancing_status", "Balancing Status", "", "", "", always},
-    {"offline_balancing_mode", "Offline Balancing Mode", "", "", "", supports_offline_bal}};
+    {"SOC", "SOC (Scaled)", "", "%", "battery", 1, always},
+    {"SOC_real", "SOC (real)", "", "%", "battery", 1, always},
+    {"state_of_health", "State Of Health", "", "%", "battery", 0, always},
+    {"temperature_min", "Temperature Min", "", "°C", "temperature", 1, always},
+    {"temperature_max", "Temperature Max", "", "°C", "temperature", 1, always},
+    {"cpu_temp", "CPU Temperature", "", "°C", "temperature", 1, always},
+    {"stat_batt_power", "Stat Batt Power", "", "W", "power", 0, always},
+    {"battery_current", "Battery Current", "", "A", "current", 1, always},
+    {"cell_max_voltage", "Cell Max Voltage", "", "V", "voltage", 3, always},
+    {"cell_min_voltage", "Cell Min Voltage", "", "V", "voltage", 3, always},
+    {"cell_voltage_delta", "Cell Voltage Delta", "", "mV", "voltage", 0, always},
+    {"battery_voltage", "Battery Voltage", "", "V", "voltage", 1, always},
+    {"total_capacity", "Battery Total Capacity", "", "Wh", "energy", 0, always},
+    {"remaining_capacity", "Battery Remaining Capacity (scaled)", "", "Wh", "energy", 0, always},
+    {"remaining_capacity_real", "Battery Remaining Capacity (real)", "", "Wh", "energy", 0, always},
+    {"max_discharge_power", "Battery Max Discharge Power", "", "W", "power", 0, always},
+    {"max_charge_power", "Battery Max Charge Power", "", "W", "power", 0, always},
+    {"charged_energy", "Battery Charged Energy", "", "Wh", "energy", 0, supports_charged},
+    {"discharged_energy", "Battery Discharged Energy", "", "Wh", "energy", 0, supports_charged},
+    {"balancing_active_cells", "Balancing Active Cells", "", "", "", -1, always},
+    {"balancing_status", "Balancing Status", "", "", "", -1, always},
+    {"offline_balancing_mode", "Offline Balancing Mode", "", "", "", -1, supports_offline_bal}};
 
 SensorConfig globalSensorConfigTemplate[] = {
     {"bms_status", "BMS Status", "", "", "", -1, always},
@@ -173,14 +173,14 @@ void create_global_sensor_configs() {
   }
 }
 
-SensorConfig buttonConfigs[] = {{"BMSRESET", "Reset BMS", nullptr, nullptr, nullptr, nullptr},
-                                {"PAUSE", "Pause charge/discharge", nullptr, nullptr, nullptr, nullptr},
-                                {"RESUME", "Resume charge/discharge", nullptr, nullptr, nullptr, nullptr},
-                                {"RESTART", "Restart Battery Emulator", nullptr, nullptr, nullptr, nullptr},
-                                {"STOP", "Open Contactors", nullptr, nullptr, nullptr, nullptr},
-                                {"BALANCING", "Balancing", nullptr, nullptr, nullptr,
+SensorConfig buttonConfigs[] = {{"BMSRESET", "Reset BMS", nullptr, nullptr, nullptr, -1, nullptr},
+                                {"PAUSE", "Pause charge/discharge", nullptr, nullptr, nullptr, -1, nullptr},
+                                {"RESUME", "Resume charge/discharge", nullptr, nullptr, nullptr, -1, nullptr},
+                                {"RESTART", "Restart Battery Emulator", nullptr, nullptr, nullptr, -1, nullptr},
+                                {"STOP", "Open Contactors", nullptr, nullptr, nullptr, -1, nullptr},
+                                {"BALANCING", "Balancing", nullptr, nullptr, nullptr, -1,
                                  [](Battery* b) { return b && b->supports_offline_balancing(); }},
-                                {"STOP_BALANCING", "Stop Balancing Mode", nullptr, nullptr, nullptr,
+                                {"STOP_BALANCING", "Stop Balancing Mode", nullptr, nullptr, nullptr, -1,
                                  [](Battery* b) { return b && b->supports_offline_balancing(); }}};
 
 static String generateCommonInfoAutoConfigTopic(const char* object_id) {
