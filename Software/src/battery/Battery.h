@@ -124,8 +124,6 @@ class Battery {
   virtual void chademo_stop() {}
   virtual void initiate_offline_balancing() {}
   virtual void end_offline_balancing() {}
-  virtual void initiate_offline_balancing() {}
-  virtual void end_offline_balancing() {}
 
   virtual void set_fake_voltage(float v) {}
   virtual float get_voltage();
