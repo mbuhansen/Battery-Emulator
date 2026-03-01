@@ -240,6 +240,13 @@ void update_calculated_values(unsigned long currentMillis) {
     int32_t target_discharge =
         ((datalayer.battery.status.max_discharge_power_W * 100) / datalayer.battery.status.voltage_dV);
 
+    // Scale targets by charge rate factor when double battery is active
+    // Factor is stored as 10-20 (representing 1.0x to 2.0x)
+    if (user_selected_second_battery) {
+      target_charge = (target_charge * double_battery_charge_rate_factor) / 10;
+      target_discharge = (target_discharge * double_battery_charge_rate_factor) / 10;
+    }
+
     // Low pass filter to prevent oscillation (10% new, 90% old)
     if (datalayer.battery.status.max_charge_current_dA == 0) {
       datalayer.battery.status.max_charge_current_dA = target_charge;  // Initialize immediately if 0

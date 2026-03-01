@@ -154,6 +154,7 @@ battery_chemistry_enum user_selected_battery_chemistry = battery_chemistry_defau
 BatteryType user_selected_battery_type = BatteryType::None;
 bool user_selected_second_battery = false;
 bool user_selected_triple_battery = false;
+uint8_t double_battery_charge_rate_factor = 10;  // Default 1.0x (stored as 10 for 1.0)
 
 Battery* create_battery(BatteryType type) {
   switch (type) {
