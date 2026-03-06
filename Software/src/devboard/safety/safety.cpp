@@ -141,11 +141,30 @@ void update_machineryprotection() {
     if (datalayer.battery.status.reported_soc == 10000 ||
         datalayer.battery.status.real_soc == 10000)  //Either Scaled OR Real SOC% value is 100.00%
     {
-      if (!battery_full_event_fired) {
-        set_event(EVENT_BATTERY_FULL, 0);
-        battery_full_event_fired = true;
+      // In parallel dual/triple battery setups, if battery2/3 is within 1% SOC and not yet full,
+      // use its allowed charge power so balance charging can complete.
+      // Large SOC differences indicate different battery states and should not override.
+      bool use_secondary_charge = false;
+      if (battery2 && datalayer.system.status.battery2_allowed_contactor_closing &&
+          datalayer.battery2.status.real_soc < 10000 &&
+          datalayer.battery.status.real_soc >= datalayer.battery2.status.real_soc &&
+          (datalayer.battery.status.real_soc - datalayer.battery2.status.real_soc) <= 100) {
+        datalayer.battery.status.max_charge_power_W = datalayer.battery2.status.max_charge_power_W;
+        use_secondary_charge = true;
+      } else if (battery3 && datalayer.system.status.battery3_allowed_contactor_closing &&
+                 datalayer.battery3.status.real_soc < 10000 &&
+                 datalayer.battery.status.real_soc >= datalayer.battery3.status.real_soc &&
+                 (datalayer.battery.status.real_soc - datalayer.battery3.status.real_soc) <= 100) {
+        datalayer.battery.status.max_charge_power_W = datalayer.battery3.status.max_charge_power_W;
+        use_secondary_charge = true;
       }
-      datalayer.battery.status.max_charge_power_W = 0;
+      if (!use_secondary_charge) {
+        if (!battery_full_event_fired) {
+          set_event(EVENT_BATTERY_FULL, 0);
+          battery_full_event_fired = true;
+        }
+        datalayer.battery.status.max_charge_power_W = 0;
+      }
     } else {
       clear_event(EVENT_BATTERY_FULL);
       battery_full_event_fired = false;
