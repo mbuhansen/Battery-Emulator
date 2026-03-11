@@ -69,6 +69,8 @@ class BmwI3Battery : public CanBattery {
   uint8_t ST_iso_int() { return battery_status_error_isolation_internal_Bordnetz; }
   // Status cooling valve error, 0 not evaluated, 1 OK valve closed, 2 error active valve open, 3 Invalid signal
   uint8_t ST_valve_cooling() { return battery_status_valve_cooling; }
+  // Actual heating power of high-voltage battery in Watts (0 = off, >0 = heating active)
+  uint16_t heating_power() { return battery_actual_value_power_heating; }
   // Status interlock error, 0 not evaluated, 1 OK, 2 error active, 3 Invalid signal
   uint8_t ST_interlock() { return battery_status_error_locking; }
   // Status precharge, 0 no statement, 1 Not active closing not blocked, 2 error precharge blocked, 3 Invalid signal

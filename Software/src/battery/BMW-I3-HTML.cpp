@@ -21,7 +21,8 @@ String BmwI3HtmlRenderer::get_status_html() {
   content += "<h4>Isolation external: " + String(safeArrayAccess(statusText, 16, batt.ST_iso_ext())) + "</h4>";
   content += "<h4>Isolation internal: " + String(safeArrayAccess(statusText, 16, batt.ST_iso_int())) + "</h4>";
   content += "<h4>Isolation: " + String(safeArrayAccess(statusText, 16, batt.ST_isolation())) + "</h4>";
-  content += "<h4>Cooling valve: " + String(safeArrayAccess(statusText, 16, batt.ST_valve_cooling())) + "</h4>";
+  content += "<h4>Battery heating: " +
+             String(batt.heating_power() > 0 ? "ON (" + String(batt.heating_power()) + " W)" : "OFF") + "</h4>";
   content += "<h4>Emergency: " + String(safeArrayAccess(statusText, 16, batt.ST_EMG())) + "</h4>";
   static const char* prechargeText[16] = {"Not evaluated",
                                           "Not active, closing not blocked",
