@@ -173,7 +173,9 @@ SensorConfig buttonConfigs[] = {{"BMSRESET", "Reset BMS", nullptr, nullptr, null
                                 {"PAUSE", "Pause charge/discharge", nullptr, nullptr, nullptr, nullptr},
                                 {"RESUME", "Resume charge/discharge", nullptr, nullptr, nullptr, nullptr},
                                 {"RESTART", "Restart Battery Emulator", nullptr, nullptr, nullptr, nullptr},
-                                {"STOP", "Open Contactors", nullptr, nullptr, nullptr, nullptr}};
+                                {"STOP", "Open Contactors", nullptr, nullptr, nullptr, nullptr},
+                                {"START_BALANCING", "Start Balancing", nullptr, nullptr, nullptr, nullptr},
+                                {"STOP_BALANCING", "Stop Balancing", nullptr, nullptr, nullptr, nullptr}};
 
 static String generateCommonInfoAutoConfigTopic(const char* object_id) {
   return "homeassistant/sensor/" + topic_name + "/" + String(object_id) + "/config";
@@ -601,6 +603,18 @@ void mqtt_message_received(char* topic_raw, int topic_len, char* data, int data_
 
   if (strcmp(topic, generateButtonTopic("STOP").c_str()) == 0) {
     setBatteryPause(true, false, true);
+  }
+
+  if (strcmp(topic, generateButtonTopic("START_BALANCING").c_str()) == 0) {
+    if (battery && battery->supports_balancing() && !battery->is_balancing_active()) {
+      battery->initiate_balancing();
+    }
+  }
+
+  if (strcmp(topic, generateButtonTopic("STOP_BALANCING").c_str()) == 0) {
+    if (battery && battery->supports_balancing() && battery->is_balancing_active()) {
+      battery->end_balancing();
+    }
   }
 
   if (strcmp(topic, generateButtonTopic("SET_LIMITS").c_str()) == 0) {
