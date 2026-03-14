@@ -105,7 +105,7 @@ class Battery {
   virtual bool supports_offline_balancing() { return false; }
   virtual bool is_offline_balancing_active() { return false; }
   virtual const char* get_offline_balancing_state_string() { return nullptr; }
-
+  virtual bool supports_toggle_heating() { return false; }
   virtual void clear_isolation() {}
   virtual void reset_BMS() {}
   virtual void reset_SOC() {}
@@ -125,6 +125,8 @@ class Battery {
   virtual void chademo_stop() {}
   virtual void initiate_offline_balancing() {}
   virtual void end_offline_balancing() {}
+  virtual void toggle_heating() {}
+  virtual bool get_is_heating_active() { return false; }
 
   virtual void set_fake_voltage(float v) {}
   virtual float get_voltage();

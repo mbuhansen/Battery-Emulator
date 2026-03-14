@@ -189,7 +189,9 @@ void BmwI3Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
       break;
     case 0x2FF:  //BMS [100ms] Status Heating High-Voltage Battery
       battery_awake = UserRequestBalancing != EXECUTING;
-      battery_actual_value_power_heating = (rx_frame.data.u8[1] << 4 | rx_frame.data.u8[0] >> 4);
+      if (rx_frame.data.u8[2] != 0xFF) {
+        battery_actual_value_power_heating = rx_frame.data.u8[2] * 20;
+      }
       break;
     case 0x363:  //BMS [1s] Identification High-Voltage Battery
       battery_serial_number =
@@ -474,6 +476,11 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
         cmdState = CLEAR_DTC;
         UserRequestDTCreset = false;
       }
+      
+      if (UserRequestHeaterToggle) {
+        cmdState = START_HEATING;
+        UserRequestHeaterToggle = false;
+      }
 
       next_data = 0;
       switch (cmdState) {
@@ -509,6 +516,14 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
         case CLEAR_DTC:
           transmit_can_frame(&BMW_6F1_CLEAR_DTC);
           cmdState = SOC;  //jump back to normal polling
+          break;
+        case START_HEATING:
+          if (is_heating_active) {
+            transmit_can_frame(&BMW_HEATER_START);
+          } else {
+            transmit_can_frame(&BMW_HEATER_STOP);
+          }
+          cmdState = SOC; // jump back to normal polling
           break;
         case OFF:
           break;

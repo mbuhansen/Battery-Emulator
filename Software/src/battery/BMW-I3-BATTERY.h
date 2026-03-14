@@ -57,6 +57,13 @@ class BmwI3Battery : public CanBattery {
   bool supports_reset_DTC() { return true; }
   void reset_DTC() { UserRequestDTCreset = true; }
 
+  bool supports_toggle_heating() { return true; }
+  void toggle_heating() { 
+    is_heating_active = !is_heating_active;
+    UserRequestHeaterToggle = true; 
+  }
+  bool get_is_heating_active() { return is_heating_active; }
+
   // SOC% raw battery value. Might not always reach 100%
   uint16_t SOC_raw() { return (battery_HVBatt_SOC * 10); }
   // SOC% instrumentation cluster value. Will always reach 100%
@@ -95,6 +102,8 @@ class BmwI3Battery : public CanBattery {
 
  private:
   bool UserRequestDTCreset = false;
+  bool is_heating_active = false;
+  bool UserRequestHeaterToggle = false;
   enum BalancingState { NONE, REQUESTED, STARTING, EXECUTING };
   BalancingState UserRequestBalancing = NONE;
   unsigned long UserRequestBalancingMillis = 0;
@@ -140,7 +149,7 @@ class BmwI3Battery : public CanBattery {
   enum BatterySize { BATTERY_60AH, BATTERY_94AH, BATTERY_120AH };
   BatterySize detectedBattery = BATTERY_60AH;
 
-  enum CmdState { SOH, CELL_VOLTAGE_MINMAX, SOC, CELL_VOLTAGE_CELLNO, CELL_VOLTAGE_CELLNO_LAST, CLEAR_DTC, OFF };
+  enum CmdState { SOH, CELL_VOLTAGE_MINMAX, SOC, CELL_VOLTAGE_CELLNO, CELL_VOLTAGE_CELLNO_LAST, CLEAR_DTC, START_HEATING, OFF };
 
   CmdState cmdState = SOC;
 
@@ -340,6 +349,16 @@ class BmwI3Battery : public CanBattery {
                                                       .DLC = 6,
                                                       .ID = 0x6F4,
                                                       .data = {0x07, 0x04, 0x31, 0x03, 0xAD, 0x6E}};
+  static constexpr CAN_frame BMW_HEATER_START = {.FD = false,
+                                                 .ext_ID = false,
+                                                 .DLC = 8,
+                                                 .ID = 0x6F1,
+                                                 .data = {0x04, 0x31, 0x01, 0xF5, 0x00, 0x00, 0x00, 0x00}};
+  static constexpr CAN_frame BMW_HEATER_STOP = {.FD = false,
+                                                .ext_ID = false,
+                                                .DLC = 8,
+                                                .ID = 0x6F1,
+                                                .data = {0x04, 0x31, 0x02, 0xF5, 0x00, 0x00, 0x00, 0x00}};
 
   //The above CAN messages need to be sent towards the battery to keep it alive
 

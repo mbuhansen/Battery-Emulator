@@ -53,6 +53,9 @@ std::vector<BatteryCommand> battery_commands = {
     {"resetEnergySavingMode", "Reset Energy Saving Mode", "reset energy saving mode to normal?",
      [](Battery* b) { return b && b->supports_energy_saving_mode_reset(); },
      [](Battery* b) { b->reset_energy_saving_mode(); }},
+    {"toggleHeating", "Toggle Heating", "toggle battery heating on/off?",
+     [](Battery* b) { return b && b->supports_toggle_heating(); },
+     [](Battery* b) { b->toggle_heating(); }},
 };
 
 String advanced_battery_processor(const String& var) {
@@ -77,7 +80,12 @@ String advanced_battery_processor(const String& var) {
       for (const auto& cmd : battery_commands) {
         if (cmd.condition(batt)) {
           // Button for user action
-          content += "<button onclick='ask" + String(cmd.identifier) + "(" + String(ix) + ")'>" + String(cmd.title) +
+          String btnTitle = String(cmd.title);
+          if (String(cmd.identifier) == "toggleHeating") {
+            btnTitle = batt->get_is_heating_active() ? "Heating is ON" : "Heating is OFF";
+          }
+
+          content += "<button onclick='ask" + String(cmd.identifier) + "(" + String(ix) + ")'>" + btnTitle +
                      "</button>";
 
           // Script that calls the backend to perform the command
