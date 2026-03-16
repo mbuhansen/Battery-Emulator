@@ -504,7 +504,7 @@ bool publish_events() {
     doc["name"] = "Event";
     doc["state_topic"] = state_topic;
     doc["unique_id"] = topic_name + "_event";
-    doc["object_id"] = object_id_prefix + "event";
+    doc["default_entity_id"] = "sensor." + object_id_prefix + "event";
     doc["value_template"] =
         "{{ value_json.event_type ~ ' (c:' ~ value_json.count ~ ',m:' ~  value_json.millis ~ ') ' ~ value_json.message "
         "}}";
