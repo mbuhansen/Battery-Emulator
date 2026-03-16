@@ -349,16 +349,18 @@ class BmwI3Battery : public CanBattery {
                                                       .DLC = 6,
                                                       .ID = 0x6F4,
                                                       .data = {0x07, 0x04, 0x31, 0x03, 0xAD, 0x6E}};
+  // UDS Routine Control (0x31): Routine ID 0xAD6A = HEIZUNG (Activate/Read heating in HV battery)
+  // Sub-function 0x01 = startRoutine, 0x02 = stopRoutine
   static constexpr CAN_frame BMW_HEATER_START = {.FD = false,
                                                  .ext_ID = false,
                                                  .DLC = 8,
                                                  .ID = 0x6F1,
-                                                 .data = {0x04, 0x31, 0x01, 0xF5, 0x00, 0x00, 0x00, 0x00}};
+                                                 .data = {0x04, 0x31, 0x01, 0xAD, 0x6A, 0x00, 0x00, 0x00}};
   static constexpr CAN_frame BMW_HEATER_STOP = {.FD = false,
                                                 .ext_ID = false,
                                                 .DLC = 8,
                                                 .ID = 0x6F1,
-                                                .data = {0x04, 0x31, 0x02, 0xF5, 0x00, 0x00, 0x00, 0x00}};
+                                                .data = {0x04, 0x31, 0x02, 0xAD, 0x6A, 0x00, 0x00, 0x00}};
 
   //The above CAN messages need to be sent towards the battery to keep it alive
 
