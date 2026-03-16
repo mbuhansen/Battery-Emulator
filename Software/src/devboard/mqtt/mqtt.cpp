@@ -139,7 +139,11 @@ SensorConfig batterySensorConfigTemplate[] = {
     {"discharged_energy", "Battery Discharged Energy", "", "Wh", "energy", 0, supports_charged},
     {"balancing_active_cells", "Balancing Active Cells", "", "", "", -1, always},
     {"balancing_status", "Balancing Status", "", "", "", -1, always},
-    {"offline_balancing_mode", "Offline Balancing Mode", "", "", "", -1, supports_offline_bal}};
+    {"offline_balancing_mode", "Offline Balancing Mode", "", "", "", -1, supports_offline_bal},
+    {"battery_heating_power", "Battery Heating Power", "", "W", "power", 0,
+     [](Battery* b) { return user_selected_battery_type == BatteryType::BmwI3; }},
+    {"bmw_i3_balancing_status_value", "BMW i3 Balancing Status Value", "", "", "", -1,
+     [](Battery* b) { return user_selected_battery_type == BatteryType::BmwI3; }}};
 
 SensorConfig globalSensorConfigTemplate[] = {
     {"bms_status", "BMS Status", "", "", "", -1, always},
@@ -335,6 +339,11 @@ static bool publish_common_info(void) {
       if (battery->supports_offline_balancing()) {
         doc["offline_balancing_mode"] = battery->get_offline_balancing_state_string();
       }
+      if (user_selected_battery_type == BatteryType::BmwI3) {
+        BmwI3Battery* bmw = static_cast<BmwI3Battery*>(battery);
+        doc["battery_heating_power"] = bmw->heating_power();
+        doc["bmw_i3_balancing_status_value"] = bmw->ST_balancing_status();
+      }
     }
 
     if (battery2) {
@@ -343,6 +352,11 @@ static bool publish_common_info(void) {
         set_battery_attributes(doc, datalayer.battery2, "_2", battery2->supports_charged_energy());
         if (battery2->supports_offline_balancing()) {
           doc["offline_balancing_mode_2"] = battery2->get_offline_balancing_state_string();
+        }
+        if (user_selected_battery_type == BatteryType::BmwI3) {
+          BmwI3Battery* bmw = static_cast<BmwI3Battery*>(battery2);
+          doc["battery_heating_power_2"] = bmw->heating_power();
+          doc["bmw_i3_balancing_status_value_2"] = bmw->ST_balancing_status();
         }
       }
     }
