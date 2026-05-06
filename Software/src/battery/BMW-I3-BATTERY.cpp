@@ -5,8 +5,15 @@
 #include "../datalayer/datalayer_extended.h"
 #include "../devboard/utils/common_functions.h"  //For CRC table
 #include "../devboard/utils/events.h"
+#include "BATTERIES.h"
 
 /* Do not change code below unless you are sure what you are doing */
+
+// TODO: replace with real per-chemistry characterization data when available
+// Voltage in mV, SOC in pptt (10000 = 100%). Points must be in descending voltage order.
+static const uint16_t bmwi3_voltage_table[] = {4100, 3640, 3500};
+static const uint16_t bmwi3_soc_table[] = {10000, 600, 0};
+static constexpr uint8_t BMWI3_TABLE_SIZE = sizeof(bmwi3_voltage_table) / sizeof(bmwi3_voltage_table[0]);
 
 static uint8_t calculateCRC(CAN_frame rx_frame, uint8_t length, uint8_t initial_value) {
   uint8_t crc = initial_value;
@@ -37,6 +44,67 @@ void BmwI3Battery::end_balancing() {
   datalayer_battery->status.bms_status = ACTIVE;
 }
 
+void BmwI3Battery::calculate_soc_havrla() {
+  if (!battery_awake || !battery_info_available) {
+    return;
+  }
+
+  // Determine cell voltage to use (mV)
+  uint16_t cell_v_mV;
+  uint16_t cell_min = datalayer_battery->status.cell_min_voltage_mV;
+  uint16_t cell_max = datalayer_battery->status.cell_max_voltage_mV;
+  uint16_t avg_mV = (battery_volts * 10) / NUMBER_OF_CELLS;  // dV/cells → mV per cell
+
+  if (cell_min == 3700 && cell_max == 3700) {
+    // Defaults not yet updated from CAN; fall back to pack average
+    cell_v_mV = avg_mV;
+  } else if (avg_mV > 3800) {
+    cell_v_mV = cell_max;
+  } else {
+    cell_v_mV = cell_min;
+  }
+
+  // Apply current correction: V_oc ≈ V_measured + I * (R_pack + R_offset) / cells
+  // pack_resistance_uV_per_dA is µV/dA per pack, divide by cells to get per-cell
+  // havrla_correction_offset_mOhm × 100 = µV/dA
+  int32_t total_r_uV_per_dA = (int32_t)pack_resistance_uV_per_dA + (int32_t)havrla_correction_offset_mOhm * 100;
+  // correction per cell in mV: (total_r_uV/dA * I_dA) / cells / 1000
+  int32_t correction_mV = (total_r_uV_per_dA * (int32_t)battery_current) / (int32_t)NUMBER_OF_CELLS / 1000;
+  int32_t corrected_v = (int32_t)cell_v_mV + correction_mV;
+
+  // Clamp to table range
+  if (corrected_v >= (int32_t)bmwi3_voltage_table[0]) {
+    soc_havrla_pptt = bmwi3_soc_table[0];
+    return;
+  }
+  if (corrected_v <= (int32_t)bmwi3_voltage_table[BMWI3_TABLE_SIZE - 1]) {
+    soc_havrla_pptt = bmwi3_soc_table[BMWI3_TABLE_SIZE - 1];
+    return;
+  }
+
+  // Linear interpolation between table points
+  uint16_t soc_raw = 0;
+  for (uint8_t i = 0; i < BMWI3_TABLE_SIZE - 1; i++) {
+    if (corrected_v <= (int32_t)bmwi3_voltage_table[i] && corrected_v >= (int32_t)bmwi3_voltage_table[i + 1]) {
+      int32_t v_hi = bmwi3_voltage_table[i];
+      int32_t v_lo = bmwi3_voltage_table[i + 1];
+      int32_t s_hi = bmwi3_soc_table[i];
+      int32_t s_lo = bmwi3_soc_table[i + 1];
+      soc_raw = (uint16_t)(s_lo + (corrected_v - v_lo) * (s_hi - s_lo) / (v_hi - v_lo));
+      break;
+    }
+  }
+
+  // EWMA damping (α = 1/20) to smooth sudden jumps
+  static int32_t soc_ewma = -1;
+  if (soc_ewma < 0) {
+    soc_ewma = (int32_t)soc_raw * 20;
+  } else {
+    soc_ewma += (int32_t)soc_raw - soc_ewma / 20;
+  }
+  soc_havrla_pptt = (uint16_t)(soc_ewma / 20);
+}
+
 void BmwI3Battery::update_values() {  //This function maps all the values fetched via CAN to the battery datalayer
   if (datalayer.system.info.equipment_stop_active == true || UserRequestBalancing == STARTING ||
       UserRequestBalancing == EXECUTING) {
@@ -63,7 +131,13 @@ void BmwI3Battery::update_values() {  //This function maps all the values fetche
     return;
   }
 
-  datalayer_battery->status.real_soc = (battery_display_SOC * 50);
+  calculate_soc_havrla();
+
+  if (user_selected_bmw_i3_soc_havrla) {
+    datalayer_battery->status.real_soc = soc_havrla_pptt;
+  } else {
+    datalayer_battery->status.real_soc = (battery_display_SOC * 50);
+  }
 
   datalayer_battery->status.voltage_dV = battery_volts;  //Unit V+1 (5000 = 500.0V)
 
@@ -343,6 +417,13 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
       }
     }
 
+    // Capture 50ms voltage/current snapshots (used for resistance estimation)
+    if (currentMillis - previousMillis50 >= INTERVAL_50_MS) {
+      previousMillis50 = currentMillis;
+      last_current_dA_50ms = battery_current;
+      last_volts_dV_50ms = battery_volts;
+    }
+
     // Send 100ms CAN Message
     if (currentMillis - previousMillis100 >= INTERVAL_100_MS) {
       previousMillis100 = currentMillis;
@@ -353,6 +434,49 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
       alive_counter_100ms = increment_alive_counter(alive_counter_100ms);
 
       transmit_can_frame(&BMW_12F);
+
+      // Internal resistance estimation (ΔV/ΔI EWMA)
+      if (battery_awake && battery_info_available && battery_volts >= 2500 && battery_volts <= 4200) {
+        int32_t dI = (int32_t)last_current_dA_50ms - (int32_t)prev_I_100ms_dA;
+
+        if (rstep_cooldown_ticks > 0) {
+          rstep_cooldown_ticks--;
+        } else if (!rstep_armed) {
+          // Detect load step: current changed by at least RSTEP_MIN_DELTA_I_DA
+          if (dI > RSTEP_MIN_DELTA_I_DA || dI < -RSTEP_MIN_DELTA_I_DA) {
+            rstep_I_before_dA = prev_I_100ms_dA;
+            rstep_V_before_dV = prev_V_100ms_dV;
+            rstep_post_delay_ticks = RSTEP_POST_DELAY_TICKS;
+            rstep_armed = 1;
+          }
+        } else {
+          // Armed: waiting for voltage to settle after step
+          if (rstep_post_delay_ticks > 0) {
+            rstep_post_delay_ticks--;
+          } else {
+            int32_t step_dI = (int32_t)last_current_dA_50ms - (int32_t)rstep_I_before_dA;
+            int32_t step_dV = (int32_t)last_volts_dV_50ms - (int32_t)rstep_V_before_dV;
+            // R = ΔV/ΔI; voltage in dV, current in dA: result in dV/dA = 100 mΩ => convert to µV/dA (*100)
+            if (step_dI != 0 && step_dV != 0) {
+              int32_t r_sample = (step_dV * 100) / step_dI;  // µV/dA (positive = resistive, sign may flip)
+              // Drop negative or out-of-range samples
+              if (r_sample >= R_MIN_UV_PER_DA && r_sample <= R_MAX_UV_PER_DA) {
+                if (!r_est_inited) {
+                  r_est_ewma_uV_per_dA = r_sample * R_EWMA_DEN;
+                  r_est_inited = 1;
+                } else {
+                  r_est_ewma_uV_per_dA += r_sample - (r_est_ewma_uV_per_dA / R_EWMA_DEN);
+                }
+                pack_resistance_uV_per_dA = (uint32_t)(r_est_ewma_uV_per_dA / R_EWMA_DEN);
+              }
+            }
+            rstep_armed = 0;
+            rstep_cooldown_ticks = RSTEP_COOLDOWN_TICKS;
+          }
+        }
+        prev_I_100ms_dA = last_current_dA_50ms;
+        prev_V_100ms_dV = last_volts_dV_50ms;
+      }
     }
     // Send 200ms CAN Message
     if (currentMillis - previousMillis200 >= INTERVAL_200_MS) {

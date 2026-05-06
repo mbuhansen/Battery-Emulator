@@ -110,6 +110,7 @@ void init_stored_settings() {
   user_selected_daly_power_at_0_degree_C = settings.getUInt("DALYPWR0C", 800);
   user_selected_use_estimated_SOC = settings.getBool("SOCESTIMATED", false);
   user_selected_tesla_digital_HVIL = settings.getBool("DIGITALHVIL", false);
+  user_selected_bmw_i3_soc_havrla = settings.getBool("BMWI3SOCHAVR", false);
   user_selected_tesla_GTW_country = settings.getUInt("GTWCOUNTRY", 0);
   user_selected_tesla_GTW_rightHandDrive = settings.getBool("GTWRHD", false);
   user_selected_tesla_GTW_mapRegion = settings.getUInt("GTWMAPREG", 0);

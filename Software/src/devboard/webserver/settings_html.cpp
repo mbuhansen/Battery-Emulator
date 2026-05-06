@@ -871,6 +871,10 @@ String raw_settings_processor(const String& var, BatteryEmulatorSettingsStore& s
     return settings.getBool("DIGITALHVIL") ? "checked" : "";
   }
 
+  if (var == "BMWI3SOCHAVR") {
+    return settings.getBool("BMWI3SOCHAVR") ? "checked" : "";
+  }
+
   if (var == "GTWRHD") {
     return settings.getBool("GTWRHD") ? "checked" : "";
   }
@@ -1193,6 +1197,11 @@ const char* getCANInterfaceName(CAN_Interface interface) {
       display: contents;
     }
 
+    form .if-bmw-i3 { display: none; }
+    form[data-battery="2"] .if-bmw-i3 {
+      display: contents;
+    }
+
     form .if-estimated { display: none; } /* Integrations with manually set charge/discharge power */
     form[data-battery="3"] .if-estimated, 
     form[data-battery="4"] .if-estimated, 
@@ -1399,6 +1408,12 @@ const char* getCANInterfaceName(CAN_Interface interface) {
           <label for='GTWPACK'>Pack type: </label><select name='GTWPACK' id='GTWPACK'>
           %GTWPACK%
           </select>
+        </div>
+
+        <div class="if-bmw-i3">
+          <label for='bmwi3sochavr'>Use SOC Havrla: </label>
+          <input type='checkbox' name='BMWI3SOCHAVR' id='bmwi3sochavr' value='on' %BMWI3SOCHAVR%
+            title="Voltage-based SOC with internal resistance correction" />
         </div>
 
         <div class="if-estimated">
