@@ -9,11 +9,36 @@
 
 /* Do not change code below unless you are sure what you are doing */
 
-// TODO: replace with real per-chemistry characterization data when available
-// Voltage in mV, SOC in pptt (10000 = 100%). Points must be in descending voltage order.
-static const uint16_t bmwi3_voltage_table[] = {4100, 3640, 3500};
-static const uint16_t bmwi3_soc_table[] = {10000, 600, 0};
-static constexpr uint8_t BMWI3_TABLE_SIZE = sizeof(bmwi3_voltage_table) / sizeof(bmwi3_voltage_table[0]);
+// BMW i3 60Ah cell characterization data (96 cells in series).
+// Voltage in mV, SOC in pptt (10000 = 100%). Descending voltage order.
+static const uint16_t bmwi3_voltage_table_60ah[] = {4100, 4080, 4055, 4022, 4000, 3985, 3962, 3940, 3903,
+                                                    3871, 3850, 3826, 3800, 3790, 3770, 3740, 3700, 3668,
+                                                    3614, 3568, 3527, 3500, 3450, 3375, 3197, 3107, 3002};
+static const uint16_t bmwi3_soc_table_60ah[] = {10000, 9788, 9526, 9002, 8440, 7987, 7525, 7271, 6596,
+                                                5998,  5565, 5000, 4271, 4001, 3576, 3042, 2441, 2100,
+                                                1699,  1332, 1011, 805,  576,  397,  143,  63,   0};
+static constexpr uint8_t BMWI3_TABLE_SIZE_60AH = sizeof(bmwi3_voltage_table_60ah) / sizeof(bmwi3_voltage_table_60ah[0]);
+
+// BMW i3 94Ah cell characterization data (96 cells in series).
+// Voltage in mV, SOC in pptt (10000 = 100%). Descending voltage order.
+static const uint16_t bmwi3_voltage_table_94ah[] = {4169, 4103, 4030, 4000, 3962, 3940, 3915, 3866, 3855,
+                                                    3832, 3769, 3747, 3688, 3623, 3615, 3588, 3540, 3525,
+                                                    3485, 3470, 3410, 3355, 3292, 3200, 3149, 3050, 3001};
+static const uint16_t bmwi3_soc_table_94ah[] = {10000, 9756, 9140, 8861, 8494, 8278, 8031, 7538, 7416,
+                                                7169,  6553, 6307, 5568, 4336, 4119, 3351, 2238, 1999,
+                                                1503,  1258, 642,  404,  272,  151,  100,  27,   0};
+static constexpr uint8_t BMWI3_TABLE_SIZE_94AH = sizeof(bmwi3_voltage_table_94ah) / sizeof(bmwi3_voltage_table_94ah[0]);
+
+// BMW i3 120Ah cell characterization data (96 cells in series).
+// Voltage in mV, SOC in pptt (10000 = 100%). Descending voltage order.
+static const uint16_t bmwi3_voltage_table_120ah[] = {4174, 4120, 4091, 4060, 4010, 3982, 3939, 3921, 3882,
+                                                     3857, 3817, 3773, 3685, 3648, 3613, 3594, 3568, 3552,
+                                                     3537, 3506, 3440, 3426, 3416, 3382, 3352, 3304, 3012};
+static const uint16_t bmwi3_soc_table_120ah[] = {10000, 9816, 9599, 9340, 8950, 8690, 8280, 8126, 7740,
+                                                 7499,  7085, 6610, 5760, 5290, 4542, 3977, 3128, 2657,
+                                                 2370,  1904, 1245, 963,  774,  490,  397,  301,  0};
+static constexpr uint8_t BMWI3_TABLE_SIZE_120AH =
+    sizeof(bmwi3_voltage_table_120ah) / sizeof(bmwi3_voltage_table_120ah[0]);
 
 static uint8_t calculateCRC(CAN_frame rx_frame, uint8_t length, uint8_t initial_value) {
   uint8_t crc = initial_value;
@@ -72,24 +97,42 @@ void BmwI3Battery::calculate_soc_havrla() {
   int32_t correction_mV = (total_r_uV_per_dA * (int32_t)battery_current) / (int32_t)NUMBER_OF_CELLS / 1000;
   int32_t corrected_v = (int32_t)cell_v_mV + correction_mV;
 
+  // Select lookup table based on detected battery variant.
+  const uint16_t* vtab;
+  const uint16_t* stab;
+  uint8_t tsize;
+  if (detectedBattery == BATTERY_120AH) {
+    vtab = bmwi3_voltage_table_120ah;
+    stab = bmwi3_soc_table_120ah;
+    tsize = BMWI3_TABLE_SIZE_120AH;
+  } else if (detectedBattery == BATTERY_94AH) {
+    vtab = bmwi3_voltage_table_94ah;
+    stab = bmwi3_soc_table_94ah;
+    tsize = BMWI3_TABLE_SIZE_94AH;
+  } else {
+    vtab = bmwi3_voltage_table_60ah;
+    stab = bmwi3_soc_table_60ah;
+    tsize = BMWI3_TABLE_SIZE_60AH;
+  }
+
   // Clamp to table range
-  if (corrected_v >= (int32_t)bmwi3_voltage_table[0]) {
-    soc_havrla_pptt = bmwi3_soc_table[0];
+  if (corrected_v >= (int32_t)vtab[0]) {
+    soc_havrla_pptt = stab[0];
     return;
   }
-  if (corrected_v <= (int32_t)bmwi3_voltage_table[BMWI3_TABLE_SIZE - 1]) {
-    soc_havrla_pptt = bmwi3_soc_table[BMWI3_TABLE_SIZE - 1];
+  if (corrected_v <= (int32_t)vtab[tsize - 1]) {
+    soc_havrla_pptt = stab[tsize - 1];
     return;
   }
 
   // Linear interpolation between table points
   uint16_t soc_raw = 0;
-  for (uint8_t i = 0; i < BMWI3_TABLE_SIZE - 1; i++) {
-    if (corrected_v <= (int32_t)bmwi3_voltage_table[i] && corrected_v >= (int32_t)bmwi3_voltage_table[i + 1]) {
-      int32_t v_hi = bmwi3_voltage_table[i];
-      int32_t v_lo = bmwi3_voltage_table[i + 1];
-      int32_t s_hi = bmwi3_soc_table[i];
-      int32_t s_lo = bmwi3_soc_table[i + 1];
+  for (uint8_t i = 0; i < tsize - 1; i++) {
+    if (corrected_v <= (int32_t)vtab[i] && corrected_v >= (int32_t)vtab[i + 1]) {
+      int32_t v_hi = vtab[i];
+      int32_t v_lo = vtab[i + 1];
+      int32_t s_hi = stab[i];
+      int32_t s_lo = stab[i + 1];
       soc_raw = (uint16_t)(s_lo + (corrected_v - v_lo) * (s_hi - s_lo) / (v_hi - v_lo));
       break;
     }
