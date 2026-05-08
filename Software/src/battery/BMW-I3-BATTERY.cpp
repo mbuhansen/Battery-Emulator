@@ -11,32 +11,32 @@
 
 // BMW i3 60Ah cell characterization data (96 cells in series).
 // Voltage in mV, SOC in pptt (10000 = 100%). Descending voltage order.
-static const uint16_t bmwi3_voltage_table_60ah[] = {4100, 4080, 4055, 4022, 4000, 3985, 3962, 3940, 3903,
-                                                    3871, 3850, 3826, 3800, 3790, 3770, 3740, 3700, 3668,
-                                                    3614, 3568, 3527, 3500, 3450, 3375, 3197, 3107, 3002};
-static const uint16_t bmwi3_soc_table_60ah[] = {10000, 9788, 9526, 9002, 8440, 7987, 7525, 7271, 6596,
-                                                5998,  5565, 5000, 4271, 4001, 3576, 3042, 2441, 2100,
-                                                1699,  1332, 1011, 805,  576,  397,  143,  63,   0};
+static const uint16_t bmwi3_voltage_table_60ah[] = {4107, 4081, 4063, 4050, 4029, 4009, 3994, 3980, 3953,
+                                                    3923, 3901, 3877, 3855, 3835, 3819, 3802, 3785, 3763,
+                                                    3737, 3707, 3684, 3665, 3642, 3603, 3578, 3554, 3542};
+static const uint16_t bmwi3_soc_table_60ah[] = {10000, 9800, 9600, 9400, 9000, 8500, 8000, 7500, 7000,
+                                                6500,  6000, 5500, 5000, 4500, 4000, 3500, 3000, 2500,
+                                                2000,  1500, 1200, 1000, 800,  500,  300,  100,  0};
 static constexpr uint8_t BMWI3_TABLE_SIZE_60AH = sizeof(bmwi3_voltage_table_60ah) / sizeof(bmwi3_voltage_table_60ah[0]);
 
 // BMW i3 94Ah cell characterization data (96 cells in series).
 // Voltage in mV, SOC in pptt (10000 = 100%). Descending voltage order.
-static const uint16_t bmwi3_voltage_table_94ah[] = {4169, 4103, 4030, 4000, 3962, 3940, 3915, 3866, 3855,
-                                                    3832, 3769, 3747, 3688, 3623, 3615, 3588, 3540, 3525,
-                                                    3485, 3470, 3410, 3355, 3292, 3200, 3149, 3050, 3001};
-static const uint16_t bmwi3_soc_table_94ah[] = {10000, 9756, 9140, 8861, 8494, 8278, 8031, 7538, 7416,
-                                                7169,  6553, 6307, 5568, 4336, 4119, 3351, 2238, 1999,
-                                                1503,  1258, 642,  404,  272,  151,  100,  27,   0};
+static const uint16_t bmwi3_voltage_table_94ah[] = {4145, 4113, 4092, 4073, 4035, 3990, 3946, 3904, 3863,
+                                                    3821, 3776, 3737, 3701, 3669, 3644, 3625, 3608, 3592,
+                                                    3575, 3555, 3541, 3529, 3515, 3491, 3478, 3466, 3460};
+static const uint16_t bmwi3_soc_table_94ah[] = {10000, 9800, 9600, 9400, 9000, 8500, 8000, 7500, 7000,
+                                                6500,  6000, 5500, 5000, 4500, 4000, 3500, 3000, 2500,
+                                                2000,  1500, 1200, 1000, 800,  500,  300,  100,  0};
 static constexpr uint8_t BMWI3_TABLE_SIZE_94AH = sizeof(bmwi3_voltage_table_94ah) / sizeof(bmwi3_voltage_table_94ah[0]);
 
 // BMW i3 120Ah cell characterization data (96 cells in series).
 // Voltage in mV, SOC in pptt (10000 = 100%). Descending voltage order.
-static const uint16_t bmwi3_voltage_table_120ah[] = {4174, 4120, 4091, 4060, 4010, 3982, 3939, 3921, 3882,
-                                                     3857, 3817, 3773, 3685, 3648, 3613, 3594, 3568, 3552,
-                                                     3537, 3506, 3440, 3426, 3416, 3382, 3352, 3304, 3012};
-static const uint16_t bmwi3_soc_table_120ah[] = {10000, 9816, 9599, 9340, 8950, 8690, 8280, 8126, 7740,
-                                                 7499,  7085, 6610, 5760, 5290, 4542, 3977, 3128, 2657,
-                                                 2370,  1904, 1245, 963,  774,  490,  397,  301,  0};
+static const uint16_t bmwi3_voltage_table_120ah[] = {4200, 4123, 4102, 4081, 4041, 3993, 3946, 3901, 3859,
+                                                     3817, 3775, 3733, 3684, 3649, 3625, 3608, 3593, 3579,
+                                                     3564, 3546, 3530, 3518, 3504, 3476, 3453, 3438, 3434};
+static const uint16_t bmwi3_soc_table_120ah[] = {10000, 9800, 9600, 9400, 9000, 8500, 8000, 7500, 7000,
+                                                 6500,  6000, 5500, 5000, 4500, 4000, 3500, 3000, 2500,
+                                                 2000,  1500, 1200, 1000, 800,  500,  300,  100,  0};
 static constexpr uint8_t BMWI3_TABLE_SIZE_120AH =
     sizeof(bmwi3_voltage_table_120ah) / sizeof(bmwi3_voltage_table_120ah[0]);
 

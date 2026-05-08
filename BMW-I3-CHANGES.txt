@@ -1,0 +1,133 @@
+Changes in BMW-I3-BATTERY.h and BMW-I3-BATTERY.cpp
+Comparison: Branch Mibha vs Tag v10.4.0
+=====================================================
+
+=== BMW-I3-BATTERY.h ===
+
+--- 1. Balancing API ---
+
+v10.4.0:
+  - BalancingState enum: NONE / REQUESTED / STARTING / EXECUTING
+  - Methods: supports_balancing(), is_balancing_active(), get_balancing_state_string()
+  - Virtual methods: initiate_balancing(), end_balancing()
+  - ST_balancing_status() returns enum-int from internal state
+
+Branch Mibha:
+  - Simple bool: UserRequestBalancingMode + balancing_mode_active
+  - Methods: supports_balancing_mode(), start_balancing_mode(), stop_balancing_mode(), is_balancing_mode_active()
+  - No virtual balancing methods
+  - balancing_status() returns battery_balancing_status (uint8_t read from the BMS itself via OBD)
+  - balancing_status_text() returns text description of the BMS's balancing status
+
+
+--- 2. 0x12F shutdown sequence (NEW in 9.2.1) ---
+
+v10.4.0:
+  BMW_12F byte3 = 0x1A fixed (sleep state from startup)
+
+Branch Mibha:
+  BMW_12F byte3 = 0xDD during normal operation (active/drive state)
+  Precise shutdown sequence with 8 steps based on real car timings:
+    DD -> 6D (0s)
+    6D -> 5D (1s)
+    5D -> 5C (1.5s)
+    5C -> 4C (2s)
+    4C -> 3C (3s)
+    3C -> 2C (4s)
+    2C -> 1C (5s)
+    1C -> 1A (5.3s)
+  Constants:
+    BALANCING_CONTACTOR_DELAY_MS = 18000  (18s: contactors open)
+    BALANCING_CAN_STOP_DELAY_MS  = 52000  (18+34s: stop all CAN)
+    balancing_12F_values[8] and balancing_12F_times[8]
+  Constants BMW_12F_BYTE3_ACTIVE = 0xDD and BMW_12F_BYTE3_SLEEP = 0x1A
+
+
+--- 3. CAN frame initial values changed ---
+
+Frame     | v10.4.0                        | Branch Mibha
+----------|--------------------------------|-----------------------------------
+BMW_12F   | byte3 = 0x1A (sleep)           | byte3 = 0xDD (active/drive)
+BMW_3E8   | byte0 = 0xF0                   | byte0 = 0xF1 (matches CAN log)
+BMW_3E9   | {0x08, 0x52, 0x41, 0x00, ...} | {0xB0, 0x81, 0x00, 0x00, ...} (NoCharge)
+
+
+--- 4. New CAN frames in branch Mibha (not in v10.4.0) ---
+
+  BMW_108  (0x108, 8 bytes) - Actual Charging Electronics Data, OpMode=1=standby
+
+
+
+--- 5. CmdState enum ---
+
+v10.4.0:
+  { SOH, CELL_VOLTAGE_MINMAX, SOC, CELL_VOLTAGE_CELLNO, CELL_VOLTAGE_CELLNO_LAST, CLEAR_DTC, OFF }
+
+Branch Mibha:
+  { SOC, CELL_VOLTAGE_MINMAX, SOH, CELL_VOLTAGE_CELLNO, CELL_VOLTAGE_CELLNO_LAST, READ_BALANCING_STATUS, CLEAR_DTC }
+
+
+
+
+=== BMW-I3-BATTERY.cpp ===
+
+--- 6. BMW_10B (0x10B) contactor command logic in transmit_can() ---
+
+v10.4.0:
+  - Uses startup_counter_contactor: waits 160 × 20ms (~3.2s) before closing contactors
+  - After 160 messages: byte1 = 0x10 (close contactors)
+  - *allows_contactor_closing is set unconditionally to true
+
+Branch Mibha:
+  - startup_counter logic is removed (commented out)
+  - Contactor state now depends on datalayer.system.status.inverter_allows_contactor_closing
+  - Adds explicit balancing contactor control:
+      contactors_should_open = balancing_mode_active AND elapsed >= 18s (BALANCING_CONTACTOR_DELAY_MS)
+  - byte1 = 0x10 (close) if inverter allows AND NOT contactors_should_open
+  - byte1 = 0x00 (open) otherwise
+  - *allows_contactor_closing is set to !contactors_should_open (was always true in v10.4.0)
+
+
+--- 7. CRC table ---
+
+v10.4.0:
+  Uses shared crc8_table_SAE_J1850_ZER0[] from common_functions.h
+
+Branch Mibha:
+  Local copy of the CRC table (crc8_table[256]) directly in the file
+
+
+--- 8. Wakeup pin logic in update_values() ---
+
+v10.4.0:
+  Simple: set LOW on equipment_stop_active or balancing EXECUTING
+
+Branch Mibha:
+  More complex:
+  - Set LOW on equipment_stop_active
+  - Set LOW when balancing_mode_active (so the battery can sleep)
+  - Use wakeup_start_time timing to control pin pulse
+
+
+--- 9. Balancing sequence in transmit_can() ---
+
+v10.4.0:
+  - Sends 3E9 frame in the 200ms interval to initiate charging
+  - Uses enum states REQUESTED -> STARTING -> EXECUTING with timeouts:
+      REQUESTED: waits 20s
+      STARTING:  waits 30s from start -> battery_awake = false -> EXECUTING
+
+Branch Mibha:
+  - Gradually steps BMW_12F byte3 down via balancing_12F_values/times table
+  - Stops CAN communication entirely after 52s (can_communication_stopped = true)
+  - Opens contactors at 18s (BALANCING_CONTACTOR_DELAY_MS)
+
+
+
+=== Summary ===
+
+The primary improvement in branch 9.2.1 is a more realistic balancing implementation:
+  1. 0x12F byte3 starts in active state (0xDD) instead of sleep (0x1A)
+  2. Gradual shutdown sequence that mimics the real car's CAN log
+  3. CAN initial values corrected to match real CAN logs (3E8, 3E9)
+  4. New BMW_108 frame added

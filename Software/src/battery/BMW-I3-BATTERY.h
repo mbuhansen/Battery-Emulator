@@ -139,17 +139,17 @@ class BmwI3Battery : public CanBattery {
   static const int ALIVE_MAX_VALUE = 14;  // BMW CAN messages contain alive counter, goes from 0...14
 
   // Internal resistance estimation (ΔV/ΔI EWMA)
-  int16_t last_current_dA_50ms = 0;    // current snapshot at previous 50ms tick
-  uint16_t last_volts_dV_50ms = 0;     // voltage snapshot at previous 50ms tick
-  int16_t rstep_I_before_dA = 0;       // current before detected load step
-  uint16_t rstep_V_before_dV = 0;      // voltage before detected load step
-  int16_t prev_I_100ms_dA = 0;         // current at previous 100ms tick
-  uint16_t prev_V_100ms_dV = 0;        // voltage at previous 100ms tick
-  uint8_t rstep_armed = 0;             // 1 = waiting for post-step voltage settle
-  uint8_t rstep_post_delay_ticks = 0;  // ticks remaining before sampling post-step voltage
-  uint8_t rstep_cooldown_ticks = 0;    // ticks remaining in cooldown after a measurement
-  uint8_t r_est_inited = 0;            // 1 = EWMA has been seeded
-  int32_t r_est_ewma_uV_per_dA = 0;    // EWMA accumulator
+  int16_t last_current_dA_50ms = 0;           // current snapshot at previous 50ms tick
+  uint16_t last_volts_dV_50ms = 0;            // voltage snapshot at previous 50ms tick
+  int16_t rstep_I_before_dA = 0;              // current before detected load step
+  uint16_t rstep_V_before_dV = 0;             // voltage before detected load step
+  int16_t prev_I_100ms_dA = 0;                // current at previous 100ms tick
+  uint16_t prev_V_100ms_dV = 0;               // voltage at previous 100ms tick
+  uint8_t rstep_armed = 0;                    // 1 = waiting for post-step voltage settle
+  uint8_t rstep_post_delay_ticks = 0;         // ticks remaining before sampling post-step voltage
+  uint8_t rstep_cooldown_ticks = 0;           // ticks remaining in cooldown after a measurement
+  uint8_t r_est_inited = 0;                   // 1 = EWMA has been seeded
+  int32_t r_est_ewma_uV_per_dA = 0;           // EWMA accumulator
   uint32_t pack_resistance_uV_per_dA = 8000;  // estimated pack resistance; default 80 mΩ
 
   static constexpr int32_t RSTEP_MIN_DELTA_I_DA = 20;   // minimum current change to trigger step (2 A)
