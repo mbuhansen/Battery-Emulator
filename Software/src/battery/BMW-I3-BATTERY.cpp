@@ -176,9 +176,22 @@ void BmwI3Battery::update_values() {  //This function maps all the values fetche
 
   calculate_soc_havrla();
 
-  if (user_selected_bmw_i3_soc_havrla) {
+  if (user_selected_bmw_i3_soc_havrla == 2) {
+    // Enable: always use Havrla voltage-based SOC
     datalayer_battery->status.real_soc = soc_havrla_pptt;
+  } else if (user_selected_bmw_i3_soc_havrla == 1) {
+    // Auto: use Havrla if it differs from BMS SOC by more than 3% (300 pptt)
+    uint16_t bms_soc = battery_display_SOC * 50;
+    int32_t diff = (int32_t)soc_havrla_pptt - (int32_t)bms_soc;
+    if (diff < 0)
+      diff = -diff;
+    if (diff > 300) {
+      datalayer_battery->status.real_soc = soc_havrla_pptt;
+    } else {
+      datalayer_battery->status.real_soc = bms_soc;
+    }
   } else {
+    // Disable: use BMS SOC
     datalayer_battery->status.real_soc = (battery_display_SOC * 50);
   }
 

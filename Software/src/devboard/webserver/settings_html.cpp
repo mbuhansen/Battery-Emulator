@@ -872,7 +872,21 @@ String raw_settings_processor(const String& var, BatteryEmulatorSettingsStore& s
   }
 
   if (var == "BMWI3SOCHAVR") {
-    return settings.getBool("BMWI3SOCHAVR") ? "checked" : "";
+    uint8_t val = settings.getUInt("BMWI3SOCHAVR", 0);
+    String sel = "";
+    if (val == 0)
+      sel +=
+          "<option value='0' selected>Disable (use BMS SOC)</option><option value='1'>Auto (use Havrla if &gt;3% "
+          "difference)</option><option value='2'>Enable (always use Havrla)</option>";
+    else if (val == 1)
+      sel +=
+          "<option value='0'>Disable (use BMS SOC)</option><option value='1' selected>Auto (use Havrla if &gt;3% "
+          "difference)</option><option value='2'>Enable (always use Havrla)</option>";
+    else
+      sel +=
+          "<option value='0'>Disable (use BMS SOC)</option><option value='1'>Auto (use Havrla if &gt;3% "
+          "difference)</option><option value='2' selected>Enable (always use Havrla)</option>";
+    return sel;
   }
 
   if (var == "GTWRHD") {
@@ -1411,9 +1425,11 @@ const char* getCANInterfaceName(CAN_Interface interface) {
         </div>
 
         <div class="if-bmw-i3">
-          <label for='bmwi3sochavr'>Use SOC Havrla: </label>
-          <input type='checkbox' name='BMWI3SOCHAVR' id='bmwi3sochavr' value='on' %BMWI3SOCHAVR%
-            title="Voltage-based SOC with internal resistance correction" />
+          <label for='BMWI3SOCHAVR'>SOC Havrla: </label>
+          <select name='BMWI3SOCHAVR' id='BMWI3SOCHAVR'
+            title="Voltage-based SOC with internal resistance correction">
+          %BMWI3SOCHAVR%
+          </select>
         </div>
 
         <div class="if-estimated">

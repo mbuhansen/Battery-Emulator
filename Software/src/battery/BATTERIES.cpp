@@ -368,7 +368,7 @@ void setup_battery() {
 bool user_selected_LEAF_interlock_mandatory = false;
 /* User-selected Tesla settings */
 bool user_selected_tesla_digital_HVIL = false;
-bool user_selected_bmw_i3_soc_havrla = false;
+uint8_t user_selected_bmw_i3_soc_havrla = 0;  // 0=disable, 1=auto, 2=enable
 uint16_t user_selected_tesla_GTW_country = 17477;
 bool user_selected_tesla_GTW_rightHandDrive = true;
 uint16_t user_selected_tesla_GTW_mapRegion = 2;

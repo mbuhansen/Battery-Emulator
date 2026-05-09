@@ -75,7 +75,7 @@ extern uint16_t user_selected_min_cell_voltage_mV;
 extern bool user_selected_use_estimated_SOC;
 extern bool user_selected_LEAF_interlock_mandatory;
 extern bool user_selected_tesla_digital_HVIL;
-extern bool user_selected_bmw_i3_soc_havrla;
+extern uint8_t user_selected_bmw_i3_soc_havrla;  // 0=disable, 1=auto, 2=enable
 extern uint16_t user_selected_tesla_GTW_country;
 extern bool user_selected_tesla_GTW_rightHandDrive;
 extern uint16_t user_selected_tesla_GTW_mapRegion;
