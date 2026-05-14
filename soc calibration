@@ -1,3 +1,4 @@
+/*
 I have an idea for how to implement our own SOC calculation. In fact, I already use it in one project 🙂 so we will use that concept.
 
 At the same time, for purely selfless reasons, I would like to have my own signature in the project, so we will call this value SOCHavrla and interpret it that way on the web interface.
@@ -18,70 +19,64 @@ In my own project, I have implemented it like this:
        Detekce skoku proudu a výpočet R = ΔV/ΔI po krátké prodlevě.
        Vstupy bereme z 50ms snapshotů (last*_50ms), ale logiku děláme zde (100ms).
     */
+/*
     int16_t I_now = last_current_dA_50ms;
-    uint16_t V_now = last_volts_dV_50ms;
+uint16_t V_now = last_volts_dV_50ms;
 
-    // Cooldown
-    if (rstep_cooldown_ticks_100ms > 0) {
-        rstep_cooldown_ticks_100ms--;
-    }
+// Cooldown
+if (rstep_cooldown_ticks_100ms > 0) {
+  rstep_cooldown_ticks_100ms--;
+}
 
-    // Detekce skoku (BEFORE = minulý 100ms snapshot)
-    int16_t dI = (int16_t)(I_now - prev_I_100ms_dA);
-    if (!rstep_armed_100ms &&
-        (dI >= RSTEP_MIN_DELTA_I_dA || dI <= -RSTEP_MIN_DELTA_I_dA) &&
-        rstep_cooldown_ticks_100ms == 0) {
-        rstep_I_before_dA = prev_I_100ms_dA;
-        rstep_V_before_dV = prev_V_100ms_dV;
-        rstep_post_delay_ticks_100ms = RSTEP_POST_DELAY_TICKS_100ms;  // počkáme ~100 ms
-        rstep_armed_100ms = 1;
-    }
+// Detekce skoku (BEFORE = minulý 100ms snapshot)
+int16_t dI = (int16_t)(I_now - prev_I_100ms_dA);
+if (!rstep_armed_100ms && (dI >= RSTEP_MIN_DELTA_I_dA || dI <= -RSTEP_MIN_DELTA_I_dA) &&
+    rstep_cooldown_ticks_100ms == 0) {
+  rstep_I_before_dA = prev_I_100ms_dA;
+  rstep_V_before_dV = prev_V_100ms_dV;
+  rstep_post_delay_ticks_100ms = RSTEP_POST_DELAY_TICKS_100ms;  // počkáme ~100 ms
+  rstep_armed_100ms = 1;
+}
 
-    // AFTER po krátké prodlevě: vyhodnoť ΔV/ΔI a filtruj
-    if (rstep_armed_100ms) {
-        if (rstep_post_delay_ticks_100ms > 0) {
-            rstep_post_delay_ticks_100ms--;
-        } else {
-            int16_t I_after_dA = I_now;
-            uint16_t V_after_dV = V_now; 
-int16_t dI2 = (int16_t)(I_after_dA - rstep_I_before_dA);
-            if (dI2 >= RSTEP_MIN_DELTA_I_dA || dI2 <= -RSTEP_MIN_DELTA_I_dA) {
-                // ΔV v dV -> µV (0.1 V = 100000 µV)
-                int32_t dV_uV = ((int32_t)V_after_dV - (int32_t)rstep_V_before_dV) * 100000;
-                if (dV_uV < 0) dV_uV = -dV_uV;
-                int32_t dI_abs = (dI2 < 0) ? -dI2 : dI2;
-                if (dI_abs > 0) {
-                    int32_t R_sample = dV_uV / dI_abs; // µV per dA
-                    // Guard: rozumné napěťové okno packu
-                    if (sme_volts_dV >= 2700u && sme_volts_dV <= 4300u &&
-                        R_sample >= R_OHMS_MIN_uV_PER_dA && R_sample <= R_OHMS_MAX_uV_PER_dA) {
-                        if (!r_est_inited) {
-                            r_est_ewma_uV_per_dA = R_sample;
-                            r_est_inited = 1;
-                        } else {
-                            r_est_ewma_uV_per_dA =
-                                ((R_EST_EWMA_DEN - R_EST_EWMA_NUM) * r_est_ewma_uV_per_dA +
-                                  R_EST_EWMA_NUM * R_sample) / R_EST_EWMA_DEN;
-                        }
-                        run_PACK_R_uV_PER_dA = r_est_ewma_uV_per_dA;
-                    }
-                }
-            }
-            // cooldown ~2 s a odjištění
-            rstep_cooldown_ticks_100ms = RSTEP_COOLDOWN_TICKS_100ms;
-            rstep_armed_100ms = 0;
+// AFTER po krátké prodlevě: vyhodnoť ΔV/ΔI a filtruj
+if (rstep_armed_100ms) {
+  if (rstep_post_delay_ticks_100ms > 0) {
+    rstep_post_delay_ticks_100ms--;
+  } else {
+    int16_t I_after_dA = I_now;
+    uint16_t V_after_dV = V_now;
+    int16_t dI2 = (int16_t)(I_after_dA - rstep_I_before_dA);
+    if (dI2 >= RSTEP_MIN_DELTA_I_dA || dI2 <= -RSTEP_MIN_DELTA_I_dA) {
+      // ΔV v dV -> µV (0.1 V = 100000 µV)
+      int32_t dV_uV = ((int32_t)V_after_dV - (int32_t)rstep_V_before_dV) * 100000;
+      if (dV_uV < 0)
+        dV_uV = -dV_uV;
+      int32_t dI_abs = (dI2 < 0) ? -dI2 : dI2;
+      if (dI_abs > 0) {
+        int32_t R_sample = dV_uV / dI_abs;  // µV per dA
+        // Guard: rozumné napěťové okno packu
+        if (sme_volts_dV >= 2700u && sme_volts_dV <= 4300u && R_sample >= R_OHMS_MIN_uV_PER_dA &&
+            R_sample <= R_OHMS_MAX_uV_PER_dA) {
+          if (!r_est_inited) {
+            r_est_ewma_uV_per_dA = R_sample;
+            r_est_inited = 1;
+          } else {
+            r_est_ewma_uV_per_dA =
+                ((R_EST_EWMA_DEN - R_EST_EWMA_NUM) * r_est_ewma_uV_per_dA + R_EST_EWMA_NUM * R_sample) / R_EST_EWMA_DEN;
+          }
+          run_PACK_R_uV_PER_dA = r_est_ewma_uV_per_dA;
         }
+      }
     }
+    // cooldown ~2 s a odjištění
+    rstep_cooldown_ticks_100ms = RSTEP_COOLDOWN_TICKS_100ms;
+    rstep_armed_100ms = 0;
+  }
+}
 
-    // posuň 100ms „previous“
-    prev_I_100ms_dA = I_now;
-    prev_V_100ms_dV = V_now;
-
-
-
-
-
-
+// posuň 100ms „previous“
+prev_I_100ms_dA = I_now;
+prev_V_100ms_dV = V_now;
 
 This result will be displayed on the web in the “More info” section, for example as R_mibha, and we will verify whether it really measures the actual internal resistance of the battery.
 
@@ -118,3 +113,4 @@ Then we will translate this corrected voltage using the table for the 60 / 94 / 
 In the battery settings, we will add an option:
 
 Use SOC_Havrla.
+*/
