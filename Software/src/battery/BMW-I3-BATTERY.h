@@ -157,8 +157,8 @@ class BmwI3Battery : public CanBattery {
   static constexpr uint8_t RSTEP_COOLDOWN_TICKS = 20;   // 100ms ticks cooldown between measurements (2 s)
   static constexpr int32_t R_MIN_UV_PER_DA = 500;       // lower sanity limit (5 mΩ)
   static constexpr int32_t R_MAX_UV_PER_DA = 50000;     // upper sanity limit (500 mΩ)
-  static constexpr int32_t R_EWMA_NUM = 1;              // EWMA numerator (α = 1/16)
-  static constexpr int32_t R_EWMA_DEN = 16;             // EWMA denominator
+  static constexpr int32_t R_EWMA_NUM = 1;              // EWMA numerator (α = 1/20)
+  static constexpr int32_t R_EWMA_DEN = 20;             // EWMA denominator
 
   // SOC_Havrla voltage-based SOC estimation
   int16_t havrla_correction_offset_mOhm = 30;  // additional IR correction offset (tunable)

@@ -139,13 +139,15 @@ void BmwI3Battery::calculate_soc_havrla() {
   }
 
   // EWMA damping (α = 1/20) to smooth sudden jumps
+  // Formula: new = (19 * old + 1 * sample) / 20
   static int32_t soc_ewma = -1;
   if (soc_ewma < 0) {
-    soc_ewma = (int32_t)soc_raw * 20;
+    soc_ewma = (int32_t)soc_raw;  // Initialize unscaled
+    soc_havrla_pptt = (uint16_t)soc_raw;
   } else {
-    soc_ewma += (int32_t)soc_raw - soc_ewma / 20;
+    soc_ewma = (19 * soc_ewma + (int32_t)soc_raw) / 20;
+    soc_havrla_pptt = (uint16_t)soc_ewma;
   }
-  soc_havrla_pptt = (uint16_t)(soc_ewma / 20);
 }
 
 void BmwI3Battery::update_values() {  //This function maps all the values fetched via CAN to the battery datalayer
@@ -512,18 +514,23 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
           } else {
             int32_t step_dI = (int32_t)last_current_dA_50ms - (int32_t)rstep_I_before_dA;
             int32_t step_dV = (int32_t)last_volts_dV_50ms - (int32_t)rstep_V_before_dV;
-            // R = ΔV/ΔI; voltage in dV, current in dA: result in dV/dA = 100 mΩ => convert to µV/dA (*100)
-            if (step_dI != 0 && step_dV != 0) {
-              int32_t r_sample = (step_dV * 100) / step_dI;  // µV/dA (positive = resistive, sign may flip)
-              // Drop negative or out-of-range samples
+            // Take absolute values for resistance calculation
+            int32_t abs_step_dI = (step_dI < 0) ? -step_dI : step_dI;
+            int32_t abs_step_dV = (step_dV < 0) ? -step_dV : step_dV;
+            // R = |ΔV|/|ΔI|; voltage in dV, current in dA: result in dV/dA = 100 mΩ => convert to µV/dA (*100)
+            if (abs_step_dI != 0 && abs_step_dV != 0) {
+              int32_t r_sample = (abs_step_dV * 100) / abs_step_dI;  // µV/dA (always positive)
+              // Sanity check: drop out-of-range samples
               if (r_sample >= R_MIN_UV_PER_DA && r_sample <= R_MAX_UV_PER_DA) {
                 if (!r_est_inited) {
-                  r_est_ewma_uV_per_dA = r_sample * R_EWMA_DEN;
+                  r_est_ewma_uV_per_dA = r_sample;  // Initialize directly, not scaled
                   r_est_inited = 1;
                 } else {
-                  r_est_ewma_uV_per_dA += r_sample - (r_est_ewma_uV_per_dA / R_EWMA_DEN);
+                  // Apply EWMA formula: new = ((DEN - NUM) * old + NUM * sample) / DEN
+                  r_est_ewma_uV_per_dA =
+                      ((R_EWMA_DEN - R_EWMA_NUM) * r_est_ewma_uV_per_dA + R_EWMA_NUM * r_sample) / R_EWMA_DEN;
                 }
-                pack_resistance_uV_per_dA = (uint32_t)(r_est_ewma_uV_per_dA / R_EWMA_DEN);
+                pack_resistance_uV_per_dA = (uint32_t)r_est_ewma_uV_per_dA;
               }
             }
             rstep_armed = 0;
