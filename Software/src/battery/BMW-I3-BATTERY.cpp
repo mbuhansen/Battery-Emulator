@@ -145,13 +145,13 @@ void BmwI3Battery::calculate_soc_havrla() {
   if (soc_ewma < 0) {
     soc_ewma = (int32_t)soc_raw;  // Initialize unscaled
     soc_havrla_pptt = (uint16_t)soc_raw;
-    DEBUG_PRINTF("[SOC_Havrla] INIT: raw_soc=%u pptt, cell_v=%d mV, corr_v=%ld mV, R=%lu uV/dA\n",
-                 soc_raw, (int16_t)cell_v_mV, corrected_v, pack_resistance_uV_per_dA);
+    DEBUG_PRINTF("[SOC_Havrla] INIT: raw_soc=%u pptt, cell_v=%d mV, corr_v=%ld mV, R=%lu uV/dA\n", soc_raw,
+                 (int16_t)cell_v_mV, corrected_v, pack_resistance_uV_per_dA);
   } else {
     soc_ewma = (19 * soc_ewma + (int32_t)soc_raw) / 20;
     soc_havrla_pptt = (uint16_t)soc_ewma;
-    DEBUG_PRINTF("[SOC_Havrla] UPDATE: raw=%u, ewma=%ld, final=%u pptt, battery_I=%d dA\n",
-                 soc_raw, soc_ewma, soc_havrla_pptt, battery_current);
+    DEBUG_PRINTF("[SOC_Havrla] UPDATE: raw=%u, ewma=%ld, final=%u pptt, battery_I=%d dA\n", soc_raw, soc_ewma,
+                 soc_havrla_pptt, battery_current);
   }
 }
 
@@ -507,8 +507,8 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
         } else if (!rstep_armed) {
           // Detect load step: current changed by at least RSTEP_MIN_DELTA_I_DA
           if (dI > RSTEP_MIN_DELTA_I_DA || dI < -RSTEP_MIN_DELTA_I_DA) {
-            DEBUG_PRINTF("[Resistance] LOAD STEP DETECTED: dI=%ld dA, V_before=%u dV, I_before=%d dA\n",
-                         dI, prev_V_100ms_dV, prev_I_100ms_dA);
+            DEBUG_PRINTF("[Resistance] LOAD STEP DETECTED: dI=%ld dA, V_before=%u dV, I_before=%d dA\n", dI,
+                         prev_V_100ms_dV, prev_I_100ms_dA);
             rstep_I_before_dA = prev_I_100ms_dA;
             rstep_V_before_dV = prev_V_100ms_dV;
             rstep_post_delay_ticks = RSTEP_POST_DELAY_TICKS;
@@ -532,20 +532,19 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
                 if (!r_est_inited) {
                   r_est_ewma_uV_per_dA = r_sample;  // Initialize directly, not scaled
                   r_est_inited = 1;
-                  DEBUG_PRINTF("[Resistance] INIT EWMA: r_sample=%ld uV/dA (%.1f mΩ)\n",
-                               r_sample, r_sample / 100.0f);
+                  DEBUG_PRINTF("[Resistance] INIT EWMA: r_sample=%ld uV/dA (%.1f mΩ)\n", r_sample, r_sample / 100.0f);
                 } else {
                   // Apply EWMA formula: new = ((DEN - NUM) * old + NUM * sample) / DEN
                   int32_t old_r = r_est_ewma_uV_per_dA;
                   r_est_ewma_uV_per_dA =
                       ((R_EWMA_DEN - R_EWMA_NUM) * r_est_ewma_uV_per_dA + R_EWMA_NUM * r_sample) / R_EWMA_DEN;
-                  DEBUG_PRINTF("[Resistance] UPDATE EWMA: old=%.1f, new_sample=%.1f, ewma=%.1f mΩ\n",
-                               old_r / 100.0f, r_sample / 100.0f, r_est_ewma_uV_per_dA / 100.0f);
+                  DEBUG_PRINTF("[Resistance] UPDATE EWMA: old=%.1f, new_sample=%.1f, ewma=%.1f mΩ\n", old_r / 100.0f,
+                               r_sample / 100.0f, r_est_ewma_uV_per_dA / 100.0f);
                 }
                 pack_resistance_uV_per_dA = (uint32_t)r_est_ewma_uV_per_dA;
               } else {
-                DEBUG_PRINTF("[Resistance] SAMPLE OUT OF RANGE: r_sample=%ld uV/dA (min=%ld, max=%ld)\n",
-                             r_sample, R_MIN_UV_PER_DA, R_MAX_UV_PER_DA);
+                DEBUG_PRINTF("[Resistance] SAMPLE OUT OF RANGE: r_sample=%ld uV/dA (min=%ld, max=%ld)\n", r_sample,
+                             R_MIN_UV_PER_DA, R_MAX_UV_PER_DA);
               }
             }
             rstep_armed = 0;
