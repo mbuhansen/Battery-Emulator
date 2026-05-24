@@ -96,7 +96,7 @@ void BmwI3Battery::calculate_soc_havrla() {
   int32_t total_r_uV_per_dA = (int32_t)pack_resistance_uV_per_dA + (int32_t)havrla_correction_offset_mOhm * 100;
   // correction per cell in mV: (total_r_uV/dA * I_dA) / cells / 1000
   int32_t correction_mV = (total_r_uV_per_dA * (int32_t)battery_current) / (int32_t)NUMBER_OF_CELLS / 1000;
-  int32_t corrected_v = (int32_t)cell_v_mV + correction_mV;
+  int32_t corrected_v = (int32_t)cell_v_mV - correction_mV;
 
   // Select lookup table based on detected battery variant.
   const uint16_t* vtab;
