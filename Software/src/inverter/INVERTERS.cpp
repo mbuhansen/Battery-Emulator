@@ -1,4 +1,5 @@
 #include "INVERTERS.h"
+#include "../communication/can/SLAVE-CAN.h"
 
 InverterProtocol* inverter = nullptr;
 
@@ -174,7 +175,8 @@ bool setup_inverter() {
       break;
 
     case InverterProtocolType::InterUnitSlave:
-      break;  // Slave has no inverter protocol
+      setup_slave_can();
+      return true;  // Slave has no inverter object, but slave CAN is now running
 
     case InverterProtocolType::Schneider:
       inverter = new SchneiderInverter();
