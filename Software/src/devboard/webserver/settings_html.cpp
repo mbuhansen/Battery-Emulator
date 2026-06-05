@@ -315,38 +315,6 @@ String settings_processor(const String& var, BatteryEmulatorSettingsStore& setti
     return options;
   }
 
-  if (var == "I3CALIB") {
-    unsigned int val = settings.getUInt("I3CALIB", 1);
-    String options = "";
-    options += "<option value='0'" + String(val == 0 ? " selected" : "") + ">Normal SOC mode</option>";
-    options += "<option value='1'" + String(val == 1 ? " selected" : "") + ">Auto SOC calibration</option>";
-    return options;
-  }
-
-  if (var == "I3CALIB") {
-    unsigned int val = settings.getUInt("I3CALIB", 1);
-    String options = "";
-    options += "<option value='0'" + String(val == 0 ? " selected" : "") + ">Normal SOC mode</option>";
-    options += "<option value='1'" + String(val == 1 ? " selected" : "") + ">Auto SOC calibration</option>";
-    return options;
-  }
-
-  if (var == "I3CALIB") {
-    unsigned int val = settings.getUInt("I3CALIB", 1);
-    String options = "";
-    options += "<option value='0'" + String(val == 0 ? " selected" : "") + ">Normal SOC mode</option>";
-    options += "<option value='1'" + String(val == 1 ? " selected" : "") + ">Auto SOC calibration</option>";
-    return options;
-  }
-
-  if (var == "I3CALIB") {
-    unsigned int val = settings.getUInt("I3CALIB", 1);
-    String options = "";
-    options += "<option value='0'" + String(val == 0 ? " selected" : "") + ">Normal SOC mode</option>";
-    options += "<option value='1'" + String(val == 1 ? " selected" : "") + ">Auto SOC calibration</option>";
-    return options;
-  }
-
 #ifdef HW_LILYGO2CAN
   if (var == "GPIOOPT1") {
     return options_for_enum_with_none((GPIOOPT1)settings.getUInt("GPIOOPT1", (int)GPIOOPT1::DEFAULT_OPT),
