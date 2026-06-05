@@ -230,6 +230,8 @@ void init_stored_settings() {
       constrain(settings.getUInt("BYDAUTOCALDRIFT", 5), 1u, 20u);
   datalayer_extended.bydAtto3.auto_calibrate_soc_enabled = settings.getBool("BYDAUTOCALEN", true);
   datalayer.battery.settings.i3_auto_calibration_enabled = (settings.getUInt("I3CALIB", 1) != 0);
+  datalayer.battery2.settings.i3_auto_calibration_enabled = datalayer.battery.settings.i3_auto_calibration_enabled;
+  datalayer.battery3.settings.i3_auto_calibration_enabled = datalayer.battery.settings.i3_auto_calibration_enabled;
 }
 
 void store_settings_equipment_stop() {

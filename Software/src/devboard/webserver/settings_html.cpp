@@ -1246,6 +1246,11 @@ const char* getCANInterfaceName(CAN_Interface interface) {
       display: contents;
     }
 
+    form .if-bmw { display: none; }
+    form[data-battery="1"] .if-bmw {
+      display: contents;
+    }
+
     form .if-nissan { display: none; }
     form[data-battery="21"] .if-nissan {
       display: contents;
@@ -1418,6 +1423,13 @@ const char* getCANInterfaceName(CAN_Interface interface) {
         <select name='battery' id='battery'>
             %BATTTYPE%
         </select>
+
+        <div class="if-bmw">
+            <label>SOC Calibration Mode: </label>
+            <select name='I3CALIB'>
+                %I3CALIB%
+            </select>
+        </div>
 
         <div class="if-nissan">
             <label for='interlock'>Interlock required: </label>

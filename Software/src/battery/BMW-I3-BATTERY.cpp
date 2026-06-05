@@ -381,8 +381,9 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
       bool is_charging_active = (datalayer_battery && datalayer_battery->status.current_dA > 80); // Charging current > 8.0 Amps
       bool is_soc_high = (battery_display_SOC > 170); // > 85% Real SOC (since raw battery_display_SOC * 50 = reported_soc, 170 * 50 = 8500 / 85.00%)
 
-      if (is_charging_active && is_soc_high) {
-        use_charge_mode = true;
+      // Only trigger auto-calibration if enabled in settings
+      if (datalayer_battery->settings.i3_auto_calibration_enabled && is_charging_active && is_soc_high) {
+         use_charge_mode = true;
       }
 
       if (use_charge_mode) {
