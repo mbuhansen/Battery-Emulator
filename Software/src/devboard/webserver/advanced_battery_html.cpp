@@ -55,6 +55,13 @@ std::vector<BatteryCommand> battery_commands = {
     {"resetEnergySavingMode", "Reset Energy Saving Mode", "reset energy saving mode to normal?",
      [](Battery* b) { return b && b->supports_energy_saving_mode_reset(); },
      [](Battery* b) { b->reset_energy_saving_mode(); }},
+    {"startForcedCalibration", "Forced Calibration",
+     "start forced calibration? This will switch the battery to Charge/Calibration mode.",
+     [](Battery* b) { return b && b->supports_forced_calibration() && !b->is_forced_calibration_active(); },
+     [](Battery* b) { b->start_forced_calibration(); }},
+    {"endForcedCalibration", "Stop Forced Calibration", "stop forced calibration?",
+     [](Battery* b) { return b && b->supports_forced_calibration() && b->is_forced_calibration_active(); },
+     [](Battery* b) { b->stop_forced_calibration(); }},
 };
 
 String advanced_battery_processor(const String& var) {

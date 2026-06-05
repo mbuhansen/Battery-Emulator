@@ -194,6 +194,8 @@ struct DATALAYER_BATTERY_SETTINGS_TYPE {
   bool user_requests_tesla_isolation_clear = false;
   bool user_requests_tesla_bms_reset = false;
   bool user_requests_tesla_soc_reset = false;
+  bool user_requests_i3_calibration = false;
+  bool i3_auto_calibration_enabled = true;
 };
 
 typedef struct {

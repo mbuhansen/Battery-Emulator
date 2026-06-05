@@ -86,6 +86,21 @@ class BmwI3Battery : public CanBattery {
   // Status balancing
   uint8_t ST_balancing_status() { return UserRequestBalancing; }
 
+  bool supports_forced_calibration() override { return true; }
+  bool is_forced_calibration_active() override { return forcedCalibrationStartMillis != 0; }
+  void start_forced_calibration() override {
+    if (datalayer_battery) {
+      datalayer_battery->settings.user_requests_i3_calibration = true;
+    }
+    forcedCalibrationStartMillis = millis() ? millis() : 1;
+  }
+  void stop_forced_calibration() override {
+    if (datalayer_battery) {
+      datalayer_battery->settings.user_requests_i3_calibration = false;
+    }
+    forcedCalibrationStartMillis = 0;
+  }
+
   BatteryHtmlRenderer& get_status_renderer() { return renderer; }
 
  private:
@@ -96,6 +111,7 @@ class BmwI3Battery : public CanBattery {
   enum BalancingState { NONE, REQUESTED, STARTING, EXECUTING };
   BalancingState UserRequestBalancing = NONE;
   unsigned long UserRequestBalancingMillis = 0;
+  unsigned long forcedCalibrationStartMillis = 0;
 
   const int MAX_CELL_VOLTAGE_60AH = 4110;   // Battery is put into emergency stop if one cell goes over this value
   const int MIN_CELL_VOLTAGE_60AH = 2700;   // Battery is put into emergency stop if one cell goes below this value

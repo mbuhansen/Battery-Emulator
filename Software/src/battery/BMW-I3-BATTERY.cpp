@@ -357,6 +357,40 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
     if (currentMillis - previousMillis100 >= INTERVAL_100_MS) {
       previousMillis100 = currentMillis;
 
+      // Handle Drive Mode (0x31) vs Charge/Calibration Mode (0x35) for BMW i3
+      bool use_charge_mode = false;
+
+      // 1. Manual forced calibration request (active until user stops it or battery aborts)
+      if (datalayer_battery && datalayer_battery->settings.user_requests_i3_calibration) {
+        if (forcedCalibrationStartMillis == 0) {
+          forcedCalibrationStartMillis = currentMillis ? currentMillis : 1;
+        }
+
+        if (battery_request_abort_charging != 0) {
+          // Battery requested abort charging -> automatically stop the forced calibration
+          datalayer_battery->settings.user_requests_i3_calibration = false;
+          forcedCalibrationStartMillis = 0;
+        } else {
+          use_charge_mode = true;
+        }
+      } else {
+        forcedCalibrationStartMillis = 0;
+      }
+
+      // 2. Automatic charge mode based on current and SOC threshold (> 85%)
+      bool is_charging_active = (datalayer_battery && datalayer_battery->status.current_dA > 80); // Charging current > 8.0 Amps
+      bool is_soc_high = (battery_display_SOC > 170); // > 85% Real SOC (since raw battery_display_SOC * 50 = reported_soc, 170 * 50 = 8500 / 85.00%)
+
+      if (is_charging_active && is_soc_high) {
+        use_charge_mode = true;
+      }
+
+      if (use_charge_mode) {
+        BMW_12F.data.u8[5] = 0x35; // Charge/Calibration mode
+      } else {
+        BMW_12F.data.u8[5] = 0x31; // Drive mode
+      }
+
       BMW_12F.data.u8[1] = ((BMW_12F.data.u8[1] & 0xF0) + alive_counter_100ms);
       BMW_12F.data.u8[0] = calculateCRC(BMW_12F, 8, 0x60);
 

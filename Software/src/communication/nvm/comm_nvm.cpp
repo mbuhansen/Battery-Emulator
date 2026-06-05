@@ -229,6 +229,7 @@ void init_stored_settings() {
   datalayer_extended.bydAtto3.auto_calibrate_soc_drift_percent =
       constrain(settings.getUInt("BYDAUTOCALDRIFT", 5), 1u, 20u);
   datalayer_extended.bydAtto3.auto_calibrate_soc_enabled = settings.getBool("BYDAUTOCALEN", true);
+  datalayer.battery.settings.i3_auto_calibration_enabled = (settings.getUInt("I3CALIB", 1) != 0);
 }
 
 void store_settings_equipment_stop() {
@@ -252,4 +253,5 @@ void store_settings() {
   settings.saveUInt("BMSRESETDUR", datalayer.battery.settings.user_set_bms_reset_duration_ms);
   settings.saveUInt("BYDAUTOCALDRIFT", datalayer_extended.bydAtto3.auto_calibrate_soc_drift_percent);
   settings.saveBool("BYDAUTOCALEN", datalayer_extended.bydAtto3.auto_calibrate_soc_enabled);
+  settings.saveUInt("I3CALIB", datalayer.battery.settings.i3_auto_calibration_enabled ? 1 : 0);
 }

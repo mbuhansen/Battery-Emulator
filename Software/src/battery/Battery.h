@@ -130,6 +130,11 @@ class Battery {
   virtual void initiate_balancing() {}
   virtual void end_balancing() {}
 
+  virtual bool supports_forced_calibration() { return false; }
+  virtual bool is_forced_calibration_active() { return false; }
+  virtual void start_forced_calibration() {}
+  virtual void stop_forced_calibration() {}
+
   virtual void set_fake_voltage(float v) {}
   virtual float get_voltage();
 
