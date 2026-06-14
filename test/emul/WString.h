@@ -80,6 +80,18 @@ class String {
     return true;
   }
 
+  void remove(unsigned int index) {
+    if (index < data.length()) {
+      data.erase(index);
+    }
+  }
+
+  void remove(unsigned int index, unsigned int count) {
+    if (index < data.length()) {
+      data.erase(index, count);
+    }
+  }
+
   // Friend functions to allow std::string + String
   friend String operator+(const std::string& lhs, const String& rhs) { return String(lhs + rhs.data); }
 
