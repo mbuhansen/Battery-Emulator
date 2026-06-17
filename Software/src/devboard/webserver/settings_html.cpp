@@ -1247,7 +1247,7 @@ const char* getCANInterfaceName(CAN_Interface interface) {
     }
 
     form .if-bmw { display: none; }
-    form[data-battery="1"] .if-bmw {
+    form[data-battery="2"] .if-bmw {
       display: contents;
     }
 
