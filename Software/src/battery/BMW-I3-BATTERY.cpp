@@ -401,12 +401,23 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
            170);  // > 85% Real SOC (since raw battery_display_SOC * 50 = reported_soc, 170 * 50 = 8500 / 85.00%)
 
       if (!datalayer_battery->settings.i3_auto_calibration_enabled || battery_request_abort_charging != 0) {
+        if (auto_calibration_active) {  // Log only on the active -> inactive transition
+          logging.print("BMW i3: Auto-calibration ended (");
+          logging.print(battery_request_abort_charging != 0 ? "battery requested charge-finished"
+                                                            : "auto-calibration disabled");
+          logging.print("). SOC = ");
+          logging.print(battery_display_SOC * 50);  // raw * 50 = reported SOC in 0.01% units
+          logging.println(" (0.01%)");
+        }
         auto_calibration_active = false;  // Disabled or battery requested charge-finished -> exit immediately
       } else if (!auto_calibration_active) {
         if (above_start_threshold && is_soc_high) {
           auto_calibration_active = true;  // Begin once charging current rises above the start threshold
         }
       } else if (!above_hold_threshold) {
+        logging.print("BMW i3: Auto-calibration ended (charging current dropped below 0.5 A). SOC = ");
+        logging.print(battery_display_SOC * 50);  // raw * 50 = reported SOC in 0.01% units
+        logging.println(" (0.01%)");
         auto_calibration_active = false;  // Charging has trailed off below the hold threshold -> exit
       }
 
