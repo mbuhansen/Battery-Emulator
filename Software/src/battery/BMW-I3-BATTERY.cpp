@@ -454,23 +454,41 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
 
       transmit_can_frame(&BMW_19B);
 
-      if (UserRequestBalancing != NONE && battery_info_available) {
-        switch (detectedBattery) {
-          case BATTERY_60AH:
-            transmit_can_frame(&BMW_3E9);
-            break;
-          case BATTERY_94AH:
-            BMW_3E9.data.u8[0] = 0x0B;
-            BMW_3E9.data.u8[1] = 0x81;
-            transmit_can_frame(&BMW_3E9);
-            break;
-          case BATTERY_120AH:
-            BMW_3E9.data.u8[0] = 0xD8;
-            BMW_3E9.data.u8[1] = 0xA4;
-            transmit_can_frame(&BMW_3E9);
-            break;
-        }
+      // Send BMW_3E9 (Load Status) continuously: byte0/byte1 = battery type, byte2/3/4 = charge state.
+      switch (detectedBattery) {
+        case BATTERY_94AH:
+          BMW_3E9.data.u8[0] = 0x0B;
+          BMW_3E9.data.u8[1] = 0x81;
+          break;
+        case BATTERY_120AH:
+          BMW_3E9.data.u8[0] = 0xD8;
+          BMW_3E9.data.u8[1] = 0xA4;
+          break;
+        default:  // BATTERY_60AH
+          BMW_3E9.data.u8[0] = 0x08;
+          BMW_3E9.data.u8[1] = 0x52;
+          break;
+      }
+      // byte2 = Chg_Status_Info (high nibble) | Charge_Req (low nibble), per DBC AEMsg3E9:
+      // byte3/byte4 carry Chg_Readiness (byte3 bit0-1) and Charging_Pwr (byte3 bit4-7 + byte4, *25 W).
+      // While charging we report Chg_Readiness=Ready and a charging power, matching a real-car capture
+      // (byte3=0x61, byte4=0x08 -> Ready + Charging_Pwr 0x086 = 134 * 25 = 3350 W); cleared otherwise.
+      if (UserRequestBalancing != NONE) {
+        BMW_3E9.data.u8[2] = 0x41;  // Charge_complete + PlugCharge (we start the shutdown/balancing)
+        BMW_3E9.data.u8[3] = 0x00;
+        BMW_3E9.data.u8[4] = 0x00;
+      } else if (currently_in_charge_mode) {
+        BMW_3E9.data.u8[2] = 0x21;  // Charge_active + PlugCharge (charging / calibration mode)
+        BMW_3E9.data.u8[3] = 0x61;  // Chg_Readiness=Ready + low nibble of Charging_Pwr
+        BMW_3E9.data.u8[4] = 0x08;  // high bits of Charging_Pwr (-> 3350 W)
+      } else {
+        BMW_3E9.data.u8[2] = 0x00;  // No_charge (drive mode)
+        BMW_3E9.data.u8[3] = 0x00;
+        BMW_3E9.data.u8[4] = 0x00;
+      }
+      transmit_can_frame(&BMW_3E9);  // Load Status
 
+      if (UserRequestBalancing != NONE && battery_info_available) {
         cmdState = OFF;
         if (UserRequestBalancing == REQUESTED && currentMillis - UserRequestBalancingMillis > 20000) {
           UserRequestBalancing = STARTING;
