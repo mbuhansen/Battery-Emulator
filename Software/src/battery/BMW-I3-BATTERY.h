@@ -112,6 +112,7 @@ class BmwI3Battery : public CanBattery {
   BalancingState UserRequestBalancing = NONE;
   unsigned long UserRequestBalancingMillis = 0;
   unsigned long forcedCalibrationStartMillis = 0;
+  bool auto_calibration_active = false;  // Latched auto-calibration state (current hysteresis: start >2A, hold >0.5A)
 
   const int MAX_CELL_VOLTAGE_60AH = 4110;   // Battery is put into emergency stop if one cell goes over this value
   const int MIN_CELL_VOLTAGE_60AH = 2700;   // Battery is put into emergency stop if one cell goes below this value
@@ -425,6 +426,7 @@ class BmwI3Battery : public CanBattery {
   uint8_t battery_status_service_disconnection_plug = 0;
   uint8_t battery_status_measurement_isolation = 0;
   uint8_t battery_request_abort_charging = 0;
+  uint8_t previous_request_abort_charging = 0;  //Edge detection for logging when battery reports charge-finished
   uint8_t battery_prediction_time_end_of_charging_minutes = 0;
   uint8_t battery_request_operating_mode = 0;
   uint8_t battery_request_charging_condition_minimum = 0;

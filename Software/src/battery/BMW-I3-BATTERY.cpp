@@ -5,6 +5,7 @@
 #include "../datalayer/datalayer_extended.h"
 #include "../devboard/utils/common_functions.h"  //For CRC table
 #include "../devboard/utils/events.h"
+#include "../devboard/utils/logging.h"
 
 /* Do not change code below unless you are sure what you are doing */
 
@@ -235,6 +236,16 @@ void BmwI3Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
       battery_status_service_disconnection_plug = (rx_frame.data.u8[0] & 0x0F);
       battery_status_measurement_isolation = (rx_frame.data.u8[0] & 0x0C) >> 2;
       battery_request_abort_charging = (rx_frame.data.u8[0] & 0x30) >> 4;
+      // Log the moment the battery reports charge-finished (RQ_ABRT_CHGNG goes 0 -> non-zero).
+      // This is the signal that ends auto-/manual calibration and is what drives SOC to 100%.
+      if (battery_request_abort_charging != 0 && previous_request_abort_charging == 0) {
+        logging.print("BMW i3: Battery reports charge-finished (abort charging = ");
+        logging.print(battery_request_abort_charging);
+        logging.print("). Reported SOC = ");
+        logging.print(battery_display_SOC * 50);  // raw * 50 = reported SOC in 0.01% units
+        logging.println(" (0.01%)");
+      }
+      previous_request_abort_charging = battery_request_abort_charging;
       battery_prediction_duration_charging_minutes = (rx_frame.data.u8[3] << 8 | rx_frame.data.u8[2]);
       battery_prediction_time_end_of_charging_minutes = rx_frame.data.u8[4];
       battery_energy_content_maximum_Wh = (((rx_frame.data.u8[6] & 0x0F) << 8) | rx_frame.data.u8[5]) * 20;
@@ -377,15 +388,29 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
         forcedCalibrationStartMillis = 0;
       }
 
-      // 2. Automatic charge mode based on current and SOC threshold (> 85%)
-      bool is_charging_active =
-          (datalayer_battery && datalayer_battery->status.current_dA > 80);  // Charging current > 8.0 Amps
+      // 2. Automatic charge mode with current hysteresis: start when charging current rises above
+      //    2.0 A (and SOC is high), then HOLD charge/calibration mode as long as charging continues,
+      //    only dropping back to drive mode once current falls below 0.5 A - or when the battery
+      //    reports charge-finished (RQ_ABRT_CHGNG), or auto-calibration is disabled.
+      bool above_start_threshold =
+          (datalayer_battery && datalayer_battery->status.current_dA > 20);  // Start when current > 2.0 Amps
+      bool above_hold_threshold =
+          (datalayer_battery && datalayer_battery->status.current_dA > 5);  // Hold while current > 0.5 Amps
       bool is_soc_high =
           (battery_display_SOC >
            170);  // > 85% Real SOC (since raw battery_display_SOC * 50 = reported_soc, 170 * 50 = 8500 / 85.00%)
 
-      // Only trigger auto-calibration if enabled in settings
-      if (datalayer_battery->settings.i3_auto_calibration_enabled && is_charging_active && is_soc_high) {
+      if (!datalayer_battery->settings.i3_auto_calibration_enabled || battery_request_abort_charging != 0) {
+        auto_calibration_active = false;  // Disabled or battery requested charge-finished -> exit immediately
+      } else if (!auto_calibration_active) {
+        if (above_start_threshold && is_soc_high) {
+          auto_calibration_active = true;  // Begin once charging current rises above the start threshold
+        }
+      } else if (!above_hold_threshold) {
+        auto_calibration_active = false;  // Charging has trailed off below the hold threshold -> exit
+      }
+
+      if (auto_calibration_active) {
         use_charge_mode = true;
       }
 
