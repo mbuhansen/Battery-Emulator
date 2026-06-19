@@ -87,6 +87,19 @@ class BmwI3Battery : public CanBattery {
   uint8_t ST_balancing_status() { return UserRequestBalancing; }
   // Current operating mode sent to the battery: Drive (0x31) or Charge/Calibration (0x35)
   const char* get_operating_mode_string() { return currently_in_charge_mode ? "Charge/Calibration" : "Drive"; }
+  // Operating mode the battery requests from us via 0x432 REQ_OPMO_HYM_HVSTO
+  const char* get_requested_mode_string() {
+    switch (battery_request_operating_mode) {
+      case 0:
+        return "No requirement";
+      case 1:
+        return "Adjust SoC";
+      case 2:
+        return "Voltage mode";
+      default:
+        return "Signal invalid";
+    }
+  }
 
   bool supports_forced_calibration() override { return true; }
   bool is_forced_calibration_active() override { return forcedCalibrationStartMillis != 0; }

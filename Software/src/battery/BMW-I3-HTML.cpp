@@ -112,6 +112,7 @@ String BmwI3HtmlRenderer::get_status_html() {
   content +=
       "<h4>Balancing status: " + String(safeArrayAccess(balancingText, 16, batt.ST_balancing_status())) + "</h4>";
   content += "<h4>Operating mode: " + String(batt.get_operating_mode_string()) + "</h4>";
+  content += "<h4>Battery requested mode: " + String(batt.get_requested_mode_string()) + "</h4>";
 
   return content;
 }
