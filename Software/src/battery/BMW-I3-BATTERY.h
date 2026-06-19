@@ -85,6 +85,8 @@ class BmwI3Battery : public CanBattery {
   uint8_t ST_cold_shutoff_valve() { return battery_status_cold_shutoff_valve; }
   // Status balancing
   uint8_t ST_balancing_status() { return UserRequestBalancing; }
+  // Current operating mode sent to the battery: Drive (0x31) or Charge/Calibration (0x35)
+  const char* get_operating_mode_string() { return currently_in_charge_mode ? "Charge/Calibration" : "Drive"; }
 
   bool supports_forced_calibration() override { return true; }
   bool is_forced_calibration_active() override { return forcedCalibrationStartMillis != 0; }
@@ -112,7 +114,8 @@ class BmwI3Battery : public CanBattery {
   BalancingState UserRequestBalancing = NONE;
   unsigned long UserRequestBalancingMillis = 0;
   unsigned long forcedCalibrationStartMillis = 0;
-  bool auto_calibration_active = false;  // Latched auto-calibration state (current hysteresis: start >2A, hold >0.5A)
+  bool auto_calibration_active = false;   // Latched auto-calibration state (current hysteresis: start >2A, hold >0.5A)
+  bool currently_in_charge_mode = false;  // Tracks last mode sent in 0x12F (Drive vs Charge/Calibration)
 
   const int MAX_CELL_VOLTAGE_60AH = 4110;   // Battery is put into emergency stop if one cell goes over this value
   const int MIN_CELL_VOLTAGE_60AH = 2700;   // Battery is put into emergency stop if one cell goes below this value

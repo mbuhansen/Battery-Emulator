@@ -414,6 +414,7 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
         use_charge_mode = true;
       }
 
+      currently_in_charge_mode = use_charge_mode;  // Remember mode for status reporting on web UI
       if (use_charge_mode) {
         BMW_12F.data.u8[5] = 0x35;  // Charge/Calibration mode
       } else {
