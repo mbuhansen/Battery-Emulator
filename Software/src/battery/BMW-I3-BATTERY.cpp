@@ -236,9 +236,11 @@ void BmwI3Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
       battery_status_service_disconnection_plug = (rx_frame.data.u8[0] & 0x0F);
       battery_status_measurement_isolation = (rx_frame.data.u8[0] & 0x0C) >> 2;
       battery_request_abort_charging = (rx_frame.data.u8[0] & 0x30) >> 4;
-      // Log the moment the battery reports charge-finished (RQ_ABRT_CHGNG goes 0 -> non-zero).
-      // This is the signal that ends auto-/manual calibration and is what drives SOC to 100%.
-      if (battery_request_abort_charging != 0 && previous_request_abort_charging == 0) {
+      // Log the moment the battery reports charge-finished (RQ_ABRT_CHGNG becomes 1 = "Request to
+      // interrupt charging"). This is the signal that ends auto-/manual calibration and drives SOC to
+      // 100%. Only value 1 is a real request - 2 (cooling) and 3 (invalid) are ignored to avoid
+      // spurious stops on transient/invalid frames.
+      if (battery_request_abort_charging == 1 && previous_request_abort_charging != 1) {
         logging.print("BMW i3: Battery reports charge-finished (abort charging = ");
         logging.print(battery_request_abort_charging);
         logging.print("). Reported SOC = ");
@@ -378,7 +380,7 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
           forcedCalibrationStartMillis = currentMillis ? currentMillis : 1;
         }
 
-        if (battery_request_abort_charging != 0) {
+        if (battery_request_abort_charging == 1) {  // 1 = Request to interrupt charging (real abort)
           // Battery requested abort charging -> automatically stop the forced calibration
           datalayer_battery->settings.user_requests_i3_calibration = false;
           forcedCalibrationStartMillis = 0;
@@ -401,7 +403,7 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
           (battery_display_SOC >
            170);  // > 85% display SOC (since battery_display_SOC * 50 = reported_soc, 170 * 50 = 8500 / 85.00%)
 
-      if (!datalayer_battery->settings.i3_auto_calibration_enabled || battery_request_abort_charging != 0) {
+      if (!datalayer_battery->settings.i3_auto_calibration_enabled || battery_request_abort_charging == 1) {
         // Log only on the active -> inactive transition, and only for the "disabled" cause -
         // the battery charge-finished (abort) case is already logged by the 0x431 receive handler.
         if (auto_calibration_active && !datalayer_battery->settings.i3_auto_calibration_enabled) {
