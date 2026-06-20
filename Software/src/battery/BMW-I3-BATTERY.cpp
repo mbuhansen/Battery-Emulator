@@ -245,8 +245,8 @@ void BmwI3Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
         logging.print(battery_request_abort_charging);
         logging.print("). Reported SOC = ");
         logging.print(battery_display_SOC *
-                      50);  // display SOC * 50 = display/reported SOC in 0.01% units (same as status.real_soc)
-        logging.println(" (0.01%)");
+                      0.5);  // display SOC * 0.5 = display/reported SOC in percent (display SOC * 50 = 0.01% units)
+        logging.println(" %");
       }
       previous_request_abort_charging = battery_request_abort_charging;
       battery_prediction_duration_charging_minutes = (rx_frame.data.u8[3] << 8 | rx_frame.data.u8[2]);
@@ -409,8 +409,8 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
         if (auto_calibration_active && !datalayer_battery->settings.i3_auto_calibration_enabled) {
           logging.print("BMW i3: Auto-calibration ended (auto-calibration disabled). SOC = ");
           logging.print(battery_display_SOC *
-                        50);  // display SOC * 50 = display/reported SOC in 0.01% units (same as status.real_soc)
-          logging.println(" (0.01%)");
+                        0.5);  // display SOC * 0.5 = display/reported SOC in percent (display SOC * 50 = 0.01% units)
+          logging.println(" %");
         }
         auto_calibration_active = false;  // Disabled or battery requested charge-finished -> exit immediately
       } else if (!auto_calibration_active) {
@@ -420,8 +420,8 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
       } else if (!above_hold_threshold) {
         logging.print("BMW i3: Auto-calibration ended (charging current dropped below 0.5 A). SOC = ");
         logging.print(battery_display_SOC *
-                      50);  // display SOC * 50 = display/reported SOC in 0.01% units (same as status.real_soc)
-        logging.println(" (0.01%)");
+                      0.5);  // display SOC * 0.5 = display/reported SOC in percent (display SOC * 50 = 0.01% units)
+        logging.println(" %");
         auto_calibration_active = false;  // Charging has trailed off below the hold threshold -> exit
       }
 
