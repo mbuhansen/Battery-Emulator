@@ -391,38 +391,38 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
         forcedCalibrationStartMillis = 0;
       }
 
-      // 2. Automatic charge mode with current hysteresis: start when charging current rises above
-      //    2.0 A (and SOC is high), then HOLD charge/calibration mode as long as charging continues,
-      //    only dropping back to drive mode once current falls below 0.5 A - or when the battery
-      //    reports charge-finished (RQ_ABRT_CHGNG), or auto-calibration is disabled.
-      bool above_start_threshold =
-          (datalayer_battery && datalayer_battery->status.current_dA > 20);  // Start when current > 2.0 Amps
-      bool above_hold_threshold =
-          (datalayer_battery && datalayer_battery->status.current_dA > 5);  // Hold while current > 0.5 Amps
-      bool is_soc_high =
-          (battery_display_SOC >
-           170);  // > 85% display SOC (since battery_display_SOC * 50 = reported_soc, 170 * 50 = 8500 / 85.00%)
+      // 2. Automatic charge mode: stay in charge/calibration mode while the highest cell is at/above
+      //    4000 mV AND the battery is actually being charged. Drop back to drive mode as soon as either
+      //    condition is no longer met - or when the battery reports charge-finished (RQ_ABRT_CHGNG),
+      //    or auto-calibration is disabled. No 2 A start / hysteresis latch anymore.
+      bool is_charging =
+          (datalayer_battery && datalayer_battery->status.current_dA > 5);  // Charging while current > 0.5 Amps
+      bool is_cell_high = (datalayer_battery &&
+                           datalayer_battery->status.cell_max_voltage_mV >= 4000);  // Highest cell at/above 4000 mV
 
-      if (!datalayer_battery->settings.i3_auto_calibration_enabled || battery_request_abort_charging == 1) {
-        // Log only on the active -> inactive transition, and only for the "disabled" cause -
-        // the battery charge-finished (abort) case is already logged by the 0x431 receive handler.
-        if (auto_calibration_active && !datalayer_battery->settings.i3_auto_calibration_enabled) {
-          logging.print("BMW i3: Auto-calibration ended (auto-calibration disabled). SOC = ");
-          logging.print(battery_display_SOC *
-                        0.5);  // display SOC * 0.5 = display/reported SOC in percent (display SOC * 50 = 0.01% units)
-          logging.println(" %");
-        }
-        auto_calibration_active = false;  // Disabled or battery requested charge-finished -> exit immediately
-      } else if (!auto_calibration_active) {
-        if (above_start_threshold && is_soc_high) {
-          auto_calibration_active = true;  // Begin once charging current rises above the start threshold
-        }
-      } else if (!above_hold_threshold) {
-        logging.print("BMW i3: Auto-calibration ended (charging current dropped below 0.5 A). SOC = ");
+      bool calibration_allowed = datalayer_battery && datalayer_battery->settings.i3_auto_calibration_enabled &&
+                                 battery_request_abort_charging != 1;
+
+      if (calibration_allowed && is_cell_high && is_charging) {
+        auto_calibration_active = true;
+      } else if (auto_calibration_active) {
+        // Log the active -> inactive transition with the reason and highest cell, for every cause
+        // (including the battery charge-finished/abort signal, which the 0x431 handler also logs).
+        const char* reason =
+            (battery_request_abort_charging == 1)
+                ? "battery reported charge-finished"
+                : (!datalayer_battery->settings.i3_auto_calibration_enabled
+                       ? "auto-calibration disabled"
+                       : (!is_cell_high ? "highest cell dropped below 4000 mV" : "charging dropped below 0.5 A"));
+        logging.print("BMW i3: Auto-calibration ended (");
+        logging.print(reason);
+        logging.print("). SOC = ");
         logging.print(battery_display_SOC *
                       0.5);  // display SOC * 0.5 = display/reported SOC in percent (display SOC * 50 = 0.01% units)
-        logging.println(" %");
-        auto_calibration_active = false;  // Charging has trailed off below the hold threshold -> exit
+        logging.print(" %, highest cell = ");
+        logging.print(datalayer_battery->status.cell_max_voltage_mV);
+        logging.println(" mV");
+        auto_calibration_active = false;
       }
 
       if (auto_calibration_active) {
@@ -479,8 +479,19 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
         BMW_3E9.data.u8[4] = 0x00;
       } else if (currently_in_charge_mode) {
         BMW_3E9.data.u8[2] = 0x21;  // Charge_active + PlugCharge (charging / calibration mode)
-        BMW_3E9.data.u8[3] = 0x61;  // Chg_Readiness=Ready + low nibble of Charging_Pwr
-        BMW_3E9.data.u8[4] = 0x08;  // high bits of Charging_Pwr (-> 3350 W)
+        // Charging_Pwr = the battery's own measured charging power (active_power_W, positive = charging),
+        // a 12-bit field at 25 W/bit spread over byte3 bit4-7 (low nibble) + byte4 (high 8 bits).
+        // byte3 bit0-1 keeps Chg_Readiness=Ready (0x1).
+        int32_t charge_power_W = datalayer_battery ? datalayer_battery->status.active_power_W : 0;
+        if (charge_power_W < 0) {
+          charge_power_W = 0;  // Only report charging power; clamp discharge/idle to zero
+        }
+        uint16_t charge_pwr_raw = charge_power_W / 25;  // 25 W per bit
+        if (charge_pwr_raw > 0x0FFF) {
+          charge_pwr_raw = 0x0FFF;  // Saturate to the 12-bit field
+        }
+        BMW_3E9.data.u8[3] = 0x01 | ((charge_pwr_raw & 0x0F) << 4);  // Chg_Readiness=Ready + Charging_Pwr low nibble
+        BMW_3E9.data.u8[4] = (charge_pwr_raw >> 4) & 0xFF;           // Charging_Pwr high bits
       } else {
         BMW_3E9.data.u8[2] = 0x00;  // No_charge (drive mode)
         BMW_3E9.data.u8[3] = 0x00;
