@@ -85,35 +85,18 @@ class BmwI3Battery : public CanBattery {
   uint8_t ST_cold_shutoff_valve() { return battery_status_cold_shutoff_valve; }
   // Status balancing
   uint8_t ST_balancing_status() { return UserRequestBalancing; }
-  // Current operating mode sent to the battery: Drive (0x31) or Charge/Calibration (0x35)
-  const char* get_operating_mode_string() { return currently_in_charge_mode ? "Charge/Calibration" : "Drive"; }
-  // Operating mode the battery requests from us via 0x432 REQ_OPMO_HYM_HVSTO
-  const char* get_requested_mode_string() {
-    switch (battery_request_operating_mode) {
+  // Charge-abort request from the battery via 0x431 RQ_ABRT_CHGNG
+  const char* get_abort_charging_string() {
+    switch (battery_request_abort_charging) {
       case 0:
-        return "No requirement";
+        return "None";
       case 1:
-        return "Adjust SoC";
+        return "Abort requested (charge finished)";
       case 2:
-        return "Voltage mode";
+        return "Reserved";
       default:
         return "Signal invalid";
     }
-  }
-
-  bool supports_forced_calibration() override { return true; }
-  bool is_forced_calibration_active() override { return forcedCalibrationStartMillis != 0; }
-  void start_forced_calibration() override {
-    if (datalayer_battery) {
-      datalayer_battery->settings.user_requests_i3_calibration = true;
-    }
-    forcedCalibrationStartMillis = millis() ? millis() : 1;
-  }
-  void stop_forced_calibration() override {
-    if (datalayer_battery) {
-      datalayer_battery->settings.user_requests_i3_calibration = false;
-    }
-    forcedCalibrationStartMillis = 0;
   }
 
   BatteryHtmlRenderer& get_status_renderer() { return renderer; }
@@ -126,8 +109,6 @@ class BmwI3Battery : public CanBattery {
   enum BalancingState { NONE, REQUESTED, STARTING, EXECUTING };
   BalancingState UserRequestBalancing = NONE;
   unsigned long UserRequestBalancingMillis = 0;
-  unsigned long forcedCalibrationStartMillis = 0;
-  bool auto_calibration_active = false;   // Latched auto-calibration state (current hysteresis: start >2A, hold >0.5A)
   bool currently_in_charge_mode = false;  // Tracks last mode sent in 0x12F (Drive vs Charge/Calibration)
 
   const int MAX_CELL_VOLTAGE_60AH = 4110;   // Battery is put into emergency stop if one cell goes over this value

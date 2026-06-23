@@ -307,14 +307,6 @@ String settings_processor(const String& var, BatteryEmulatorSettingsStore& setti
     return options_from_map(settings.getUInt("PYLONBRAND", 0), pylon_models);
   }
 
-  if (var == "I3CALIB") {
-    unsigned int val = settings.getUInt("I3CALIB", 1);
-    String options = "";
-    options += "<option value='0'" + String(val == 0 ? " selected" : "") + ">Normal SOC mode</option>";
-    options += "<option value='1'" + String(val == 1 ? " selected" : "") + ">Auto SOC calibration</option>";
-    return options;
-  }
-
 #ifdef HW_LILYGO2CAN
   if (var == "GPIOOPT1") {
     return options_for_enum_with_none((GPIOOPT1)settings.getUInt("GPIOOPT1", (int)GPIOOPT1::DEFAULT_OPT),
@@ -1246,11 +1238,6 @@ const char* getCANInterfaceName(CAN_Interface interface) {
       display: contents;
     }
 
-    form .if-bmw { display: none; }
-    form[data-battery="2"] .if-bmw {
-      display: contents;
-    }
-
     form .if-nissan { display: none; }
     form[data-battery="21"] .if-nissan {
       display: contents;
@@ -1423,13 +1410,6 @@ const char* getCANInterfaceName(CAN_Interface interface) {
         <select name='battery' id='battery'>
             %BATTTYPE%
         </select>
-
-        <div class="if-bmw">
-            <label>SOC Calibration Mode: </label>
-            <select name='I3CALIB'>
-                %I3CALIB%
-            </select>
-        </div>
 
         <div class="if-nissan">
             <label for='interlock'>Interlock required: </label>

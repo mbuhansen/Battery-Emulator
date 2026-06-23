@@ -371,70 +371,9 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
     if (currentMillis - previousMillis100 >= INTERVAL_100_MS) {
       previousMillis100 = currentMillis;
 
-      // Handle Drive Mode (0x31) vs Charge/Calibration Mode (0x35) for BMW i3
-      bool use_charge_mode = false;
-
-      // 1. Manual forced calibration request (active until user stops it or battery aborts)
-      if (datalayer_battery && datalayer_battery->settings.user_requests_i3_calibration) {
-        if (forcedCalibrationStartMillis == 0) {
-          forcedCalibrationStartMillis = currentMillis ? currentMillis : 1;
-        }
-
-        if (battery_request_abort_charging == 1) {  // 1 = Request to interrupt charging (real abort)
-          // Battery requested abort charging -> automatically stop the forced calibration
-          datalayer_battery->settings.user_requests_i3_calibration = false;
-          forcedCalibrationStartMillis = 0;
-        } else {
-          use_charge_mode = true;
-        }
-      } else {
-        forcedCalibrationStartMillis = 0;
-      }
-
-      // 2. Automatic charge mode: stay in charge/calibration mode while the highest cell is at/above
-      //    4000 mV AND the battery is actually being charged. Drop back to drive mode as soon as either
-      //    condition is no longer met - or when the battery reports charge-finished (RQ_ABRT_CHGNG),
-      //    or auto-calibration is disabled. No 2 A start / hysteresis latch anymore.
-      bool is_charging =
-          (datalayer_battery && datalayer_battery->status.current_dA > 5);  // Charging while current > 0.5 Amps
-      bool is_cell_high = (datalayer_battery &&
-                           datalayer_battery->status.cell_max_voltage_mV >= 4000);  // Highest cell at/above 4000 mV
-
-      bool calibration_allowed = datalayer_battery && datalayer_battery->settings.i3_auto_calibration_enabled &&
-                                 battery_request_abort_charging != 1;
-
-      if (calibration_allowed && is_cell_high && is_charging) {
-        auto_calibration_active = true;
-      } else if (auto_calibration_active) {
-        // Log the active -> inactive transition with the reason and highest cell, for every cause
-        // (including the battery charge-finished/abort signal, which the 0x431 handler also logs).
-        const char* reason =
-            (battery_request_abort_charging == 1)
-                ? "battery reported charge-finished"
-                : (!datalayer_battery->settings.i3_auto_calibration_enabled
-                       ? "auto-calibration disabled"
-                       : (!is_cell_high ? "highest cell dropped below 4000 mV" : "charging dropped below 0.5 A"));
-        logging.print("BMW i3: Auto-calibration ended (");
-        logging.print(reason);
-        logging.print("). SOC = ");
-        logging.print(battery_display_SOC *
-                      0.5);  // display SOC * 0.5 = display/reported SOC in percent (display SOC * 50 = 0.01% units)
-        logging.print(" %, highest cell = ");
-        logging.print(datalayer_battery->status.cell_max_voltage_mV);
-        logging.println(" mV");
-        auto_calibration_active = false;
-      }
-
-      if (auto_calibration_active) {
-        use_charge_mode = true;
-      }
-
-      currently_in_charge_mode = use_charge_mode;  // Remember mode for status reporting on web UI
-      if (use_charge_mode) {
-        BMW_12F.data.u8[5] = 0x35;  // Charge/Calibration mode
-      } else {
-        BMW_12F.data.u8[5] = 0x31;  // Drive mode
-      }
+      // Always operate the BMW i3 in Charge/Calibration mode (0x35).
+      currently_in_charge_mode = true;
+      BMW_12F.data.u8[5] = 0x35;  // Charge/Calibration mode
 
       BMW_12F.data.u8[1] = ((BMW_12F.data.u8[1] & 0xF0) + alive_counter_100ms);
       BMW_12F.data.u8[0] = calculateCRC(BMW_12F, 8, 0x60);
@@ -477,8 +416,8 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
         BMW_3E9.data.u8[2] = 0x41;  // Charge_complete + PlugCharge (we start the shutdown/balancing)
         BMW_3E9.data.u8[3] = 0x00;
         BMW_3E9.data.u8[4] = 0x00;
-      } else if (currently_in_charge_mode) {
-        BMW_3E9.data.u8[2] = 0x21;  // Charge_active + PlugCharge (charging / calibration mode)
+      } else {
+        BMW_3E9.data.u8[2] = 0x21;  // Charge_active + PlugCharge (always in charging / calibration mode)
         // Charging_Pwr = the battery's own measured charging power (active_power_W, positive = charging),
         // a 12-bit field at 25 W/bit spread over byte3 bit4-7 (low nibble) + byte4 (high 8 bits).
         // byte3 bit0-1 keeps Chg_Readiness=Ready (0x1).
@@ -492,10 +431,6 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
         }
         BMW_3E9.data.u8[3] = 0x01 | ((charge_pwr_raw & 0x0F) << 4);  // Chg_Readiness=Ready + Charging_Pwr low nibble
         BMW_3E9.data.u8[4] = (charge_pwr_raw >> 4) & 0xFF;           // Charging_Pwr high bits
-      } else {
-        BMW_3E9.data.u8[2] = 0x00;  // No_charge (drive mode)
-        BMW_3E9.data.u8[3] = 0x00;
-        BMW_3E9.data.u8[4] = 0x00;
       }
       transmit_can_frame(&BMW_3E9);  // Load Status
 
