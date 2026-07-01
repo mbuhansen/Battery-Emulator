@@ -68,7 +68,7 @@ static void null_stuffer(uint8_t* lfc, int len) {
 }
 
 static void send_kostal(uint8_t* frame, int len) {
-  dbg_frame(frame, len, "TX");
+  //dbg_frame(frame, len, "TX");
   Serial2.write(frame, len);
 }
 
@@ -253,7 +253,7 @@ void KostalInverterProtocol::receive()  // Runs as fast as possible to handle th
       rx_index++;
       if (RS485_RXFRAME[rx_index - 1] == 0x00) {
         if ((rx_index > 9) && register_content_ok) {
-          dbg_frame(RS485_RXFRAME, 10, "RX");
+          //dbg_frame(RS485_RXFRAME, 10, "RX");
           if (check_kostal_frame_crc(rx_index)) {
             incoming_message_counter = RS485_HEALTHY;
 
