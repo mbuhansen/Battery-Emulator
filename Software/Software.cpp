@@ -286,10 +286,17 @@ void update_calculated_values(unsigned long currentMillis) {
    * ---------------------------------------
    *     (max_percentage - min_percentage)
    *
-   * And scaled capacity is:
+   * Scaled total capacity is the real total capacity resized to the configured window:
    *
    *     reported_total_capacity_Wh = total_capacity_Wh * (max - min) / 10000
-   *     reported_remaining_capacity_Wh = reported_total_capacity_Wh * scaled_soc / 10000
+   *
+   * Scaled remaining capacity shifts the *real* remaining_capacity_Wh down by the energy
+   * below the min_percentage "virtual zero" point, instead of recomputing it from
+   * total_capacity_Wh * scaled_soc. Real remaining_capacity_Wh often isn't a perfectly
+   * linear function of total_capacity_Wh * real_soc (SOH derating, non-linear capacity
+   * curves, etc.), so reconstructing it from percentages alone would throw that away:
+   *
+   *     reported_remaining_capacity_Wh = remaining_capacity_Wh - (total_capacity_Wh * min_percentage / 10000)
    */
     // Compute delta_pct and clamped_soc
     int32_t delta_pct = datalayer.battery.settings.max_percentage - datalayer.battery.settings.min_percentage;
@@ -309,8 +316,13 @@ void update_calculated_values(unsigned long currentMillis) {
       scaled_total_capacity = (datalayer.battery.info.total_capacity_Wh * delta_pct) / 10000;
       datalayer.battery.info.reported_total_capacity_Wh = scaled_total_capacity;
 
-      // Scale remaining capacity based on scaled SOC
-      datalayer.battery.status.reported_remaining_capacity_Wh = (scaled_total_capacity * scaled_soc) / 10000;
+      // Shift the real remaining energy down by the energy below min_percentage, then clamp to the window
+      int32_t min_energy_offset_Wh =
+          (static_cast<int32_t>(datalayer.battery.info.total_capacity_Wh) * datalayer.battery.settings.min_percentage) /
+          10000;
+      int32_t remaining_Wh =
+          static_cast<int32_t>(datalayer.battery.status.remaining_capacity_Wh) - min_energy_offset_Wh;
+      datalayer.battery.status.reported_remaining_capacity_Wh = CONSTRAIN(remaining_Wh, 0, scaled_total_capacity);
 
     } else {
       // Fallback if scaling cannot be performed
@@ -323,8 +335,13 @@ void update_calculated_values(unsigned long currentMillis) {
       if (datalayer.battery2.info.total_capacity_Wh > 0 && datalayer.battery.status.real_soc > 0) {
 
         datalayer.battery2.info.reported_total_capacity_Wh = scaled_total_capacity;
-        // Scale remaining capacity based on scaled SOC
-        datalayer.battery2.status.reported_remaining_capacity_Wh = (scaled_total_capacity * scaled_soc) / 10000;
+        // Shift the real remaining energy down by the energy below min_percentage, then clamp to the window
+        int32_t min_energy_offset_Wh2 = (static_cast<int32_t>(datalayer.battery2.info.total_capacity_Wh) *
+                                         datalayer.battery.settings.min_percentage) /
+                                        10000;
+        int32_t remaining_Wh2 =
+            static_cast<int32_t>(datalayer.battery2.status.remaining_capacity_Wh) - min_energy_offset_Wh2;
+        datalayer.battery2.status.reported_remaining_capacity_Wh = CONSTRAIN(remaining_Wh2, 0, scaled_total_capacity);
 
       } else {
         // Fallback if scaling cannot be performed
