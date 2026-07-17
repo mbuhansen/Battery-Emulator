@@ -40,3 +40,4 @@ USER_SECRETS.h
 
 # Ignore auto-generated ESP-IDF component manifest
 idf_component.yml
+Software/idf_component.yml

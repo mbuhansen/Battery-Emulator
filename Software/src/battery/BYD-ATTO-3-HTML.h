@@ -1,6 +1,7 @@
 #ifndef _BYD_ATTO_3_HTML_H
 #define _BYD_ATTO_3_HTML_H
 
+#include <Arduino.h>
 #include "../datalayer/datalayer.h"
 #include "../datalayer/datalayer_extended.h"
 #include "../devboard/webserver/BatteryHtmlRenderer.h"
@@ -341,6 +342,9 @@ class BydAtto3HtmlRenderer : public BatteryHtmlRenderer {
     content += "  xhr.send();";
     content += "}";
     content += "</script>";
+
+    auto& dtc = s.length() ? datalayer.battery2.dtc : datalayer.battery.dtc;
+    content += BatteryHtmlRenderer::render_dtc_section_html(dtc, "byd_atto3_dtc.json", true);
 
     return content;
   }

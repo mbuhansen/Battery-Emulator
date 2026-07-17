@@ -414,33 +414,42 @@ void init_webserver() {
     // Reset all settings to factory defaults
     BatteryEmulatorSettingsStore settings;
     settings.clearAll();
-
+    erase_phy_cal_data();
+    logging.println("Factory reset performed from the web interface.");
     request->send(200, "text/html", "OK");
   });
 
   const char* boolSettingNames[] = {
-      "DBLBTR",        "CNTCTRL",       "CNTCTRLDBL",  "PWMCNTCTRL",   "PERBMSRESET",   "SDLOGENABLED", "STATICIP",
-      "REMBMSRESET",   "EXTPRECHARGE",  "USBENABLED",  "CANLOGUSB",    "WEBENABLED",    "CANFDASCAN",   "CANFD2ASCAN",
-      "CANLOGSD",      "WIFIAPENABLED", "MQTTENABLED", "NOINVDISC",    "HADISC",        "MQTTTOPICS",   "MQTTCELLV",
-      "GTWRHD",        "DIGITALHVIL",   "PERFPROFILE", "INTERLOCKREQ", "SOCESTIMATED",  "PYLONOFFSET",  "PYLONORDER",
-      "DEYEBYD",       "NCCONTACTOR",   "TRIBTR",      "CNTCTRLTRI",   "ESPNOWENABLED", "PRIMOGEN24",   "CTINVERT",
-      "LOWPASSFILTER", "WEBAUTH",       "SLOWCANINV",
+      "DBLBTR",      "CNTCTRL",       "CNTCTRLDBL",   "PWMCNTCTRL",    "PERBMSRESET", "SDLOGENABLED", "STATICIP",
+      "REMBMSRESET", "EXTPRECHARGE",  "USBENABLED",   "CANLOGUSB",     "WEBENABLED",  "CANFDASCAN",   "CANFD2ASCAN",
+      "CANLOGSD",    "WIFIAPENABLED", "MQTTENABLED",  "NOINVDISC",     "HADISC",      "MQTTCELLV",    "GTWRHD",
+      "DIGITALHVIL", "PERFPROFILE",   "INTERLOCKREQ", "SOCESTIMATED",  "PYLONOFFSET", "PYLONORDER",   "DEYEBYD",
+      "NCCONTACTOR", "TRIBTR",        "CNTCTRLTRI",   "ESPNOWENABLED", "PRIMOGEN24",  "CTINVERT",     "LOWPASSFILTER",
+      "WEBAUTH",     "SLOWCANINV",
+#ifndef SMALL_FLASH_DEVICE
+      "SYSLOGEN",
+#endif
   };
 
   const char* uintSettingNames[] = {
-      "BATTCVMAX",  "BATTCVMIN",   "MAXPRETIME",  "MAXPREFREQ",  "WIFICHANNEL", "DCHGPOWER", "CHGPOWER",    "LOCALIP1",
-      "LOCALIP2",   "LOCALIP3",    "LOCALIP4",    "GATEWAY1",    "GATEWAY2",    "GATEWAY3",  "GATEWAY4",    "SUBNET1",
-      "SUBNET2",    "SUBNET3",     "SUBNET4",     "MQTTPORT",    "MQTTTIMEOUT", "SOFAR_ID",  "PYLONSEND",   "INVCELLS",
-      "INVMODULES", "INVCELLSPER", "INVVLEVEL",   "INVCAPACITY", "INVBTYPE",    "CANFREQ",   "CANFDFREQ",   "PRECHGMS",
-      "PWMFREQ",    "PWMHOLD",     "GTWCOUNTRY",  "GTWMAPREG",   "GTWCHASSIS",  "GTWPACK",   "LEDMODE",     "GPIOOPT1",
-      "GPIOOPT2",   "GPIOOPT3",    "INVSUNTYPE",  "GPIOOPT4",    "CTVNOM",      "CTANOM",    "CTATTEN",     "PYLONBAUD",
-      "PYLONBRAND", "DALYPWRPCT",  "DALYPWRDV",   "DALYDVSTART", "DALYPWRDEG",  "DALYPWR0C", "RAMPDOWNSOC", "GPIOOPT5",
-      "GPIOOPT6",   "INVICNT",     "SLAVENODEID",
+      "BATTCVMAX",  "BATTCVMIN",   "MAXPRETIME",  "MAXPREFREQ", "WIFICHANNEL",   "DCHGPOWER",     "CHGPOWER",
+      "MQTTPORT",   "MQTTTIMEOUT", "SOFAR_ID",    "PYLONSEND",  "INVCELLS",      "INVMODULES",    "INVCELLSPER",
+      "INVVLEVEL",  "INVCAPACITY", "INVBTYPE",    "PRECHGMS",   "PWMFREQ",       "PWMHOLD",       "GTWCOUNTRY",
+      "GTWMAPREG",  "GTWCHASSIS",  "GTWPACK",     "LEDMODE",    "GPIOOPT1",      "GPIOOPT2",      "GPIOOPT3",
+      "INVSUNTYPE", "GPIOOPT4",    "CTVNOM",      "CTANOM",     "CTATTEN",       "PYLONBAUD",     "PYLONBRAND",
+      "DALYPWRPCT", "DALYPWRDV",   "DALYDVSTART", "DALYPWRDEG", "DALYPWR0C",     "RAMPDOWNSOC",   "GPIOOPT5",
+      "GPIOOPT6",   "INVICNT",     "SLAVENODEID", "FOXESSTYPE", "FOXESSSUBTYPE", "FOXESSMODULES",
+#ifndef SMALL_FLASH_DEVICE
+      "SYSLOGPORT", "SYSLOGFAC",
+#endif
   };
 
-  const char* stringSettingNames[] = {"APNAME",         "APPASSWORD",   "HOSTNAME",  "MQTTSERVER",
-                                      "MQTTUSER",       "MQTTPASSWORD", "MQTTTOPIC", "MQTTOBJIDPREFIX",
-                                      "MQTTDEVICENAME", "HADEVICEID",   "HTTPUSER",  "HTTPPASS"};
+  const char* stringSettingNames[] = {"APPASSWORD", "HOSTNAME", "MQTTSERVER", "MQTTUSER", "MQTTPASSWORD", "HTTPUSER",
+                                      "HTTPPASS",   "LOCALIP",  "GATEWAY",    "SUBNET",   "DNS",
+#ifndef SMALL_FLASH_DEVICE
+                                      "SYSLOGIP"
+#endif
+  };
 
   // Handles the form POST from UI to save settings of the common image
   server.on("/saveSettings", HTTP_POST,
@@ -454,10 +463,14 @@ void init_webserver() {
               bool requestedWebAuth = webAuthParam != nullptr && webAuthParam->value() == "on";
               String requestedHttpUser =
                   httpUserParam != nullptr ? httpUserParam->value() : settings.getString("HTTPUSER", "admin");
-              String requestedHttpPass =
-                  httpPassParam != nullptr ? httpPassParam->value() : settings.getString("HTTPPASS");
+              String requestedHttpPass = (httpPassParam != nullptr && !httpPassParam->value().isEmpty())
+                                             ? httpPassParam->value()
+                                             : settings.getString("HTTPPASS");
+
               String requestedHttpPassConfirm =
-                  httpPassConfirmParam != nullptr ? httpPassConfirmParam->value() : requestedHttpPass;
+                  (httpPassConfirmParam != nullptr && !httpPassConfirmParam->value().isEmpty())
+                      ? httpPassConfirmParam->value()
+                      : requestedHttpPass;
 
               if (requestedHttpPass != requestedHttpPassConfirm) {
                 request->send(400, "text/plain", "Web interface passwords do not match.");
@@ -525,7 +538,9 @@ void init_webserver() {
                   settings.saveString("SSID", p->value().c_str());
                   ssid = settings.getString("SSID", "").c_str();
                 } else if (p->name() == "PASSWORD") {
-                  settings.saveString("PASSWORD", p->value().c_str());
+                  if (!p->value().isEmpty()) {  // blank = keep existing (field is rendered empty)
+                    settings.saveString("PASSWORD", p->value().c_str());
+                  }
                   password = settings.getString("PASSWORD", "").c_str();
                 } else if (p->name() == "MQTTPUBLISHMS") {
                   auto interval = atoi(p->value().c_str()) * 1000;  // Convert seconds to milliseconds
@@ -541,6 +556,13 @@ void init_webserver() {
 
                 for (auto& stringSetting : stringSettingNames) {
                   if (p->name() == stringSetting) {
+                    // Password fields are rendered blank; an empty value means "keep unchanged".
+                    const bool isPasswordField =
+                        (std::string(stringSetting) == "APPASSWORD" || std::string(stringSetting) == "MQTTPASSWORD" ||
+                         std::string(stringSetting) == "HTTPPASS");
+                    if (isPasswordField && p->value().isEmpty()) {
+                      continue;  // keep existing stored password
+                    }
                     if (settings.getString(stringSetting) != p->value()) {
                       settings.saveString(stringSetting, p->value().c_str());
                     }
@@ -619,9 +641,10 @@ void init_webserver() {
   // Route for equipment stop/resume
   update_string("/equipmentStop", [](String value) {
     if (value == "true" || value == "1") {
-      setBatteryPause(true, false, true);  //Pause battery, do not pause CAN, equipment stop on (store to flash)
+      setBatteryPause(true, false,
+                      EquipmentStop::STOP);  //Pause battery, do not pause CAN, equipment stop on (store to flash)
     } else {
-      setBatteryPause(false, false, false);
+      setBatteryPause(false, false, EquipmentStop::RESUME);
     }
   });
 
@@ -830,12 +853,8 @@ void init_webserver() {
   // Route to handle reboot command
   def_route_with_auth("/reboot", server, HTTP_GET, [](AsyncWebServerRequest* request) {
     request->send(200, "text/plain", "Rebooting server...");
-
-    //Equipment STOP without persisting the equipment state before restart
-    // Max Charge/Discharge = 0; CAN = stop; contactors = open
-    setBatteryPause(true, true, true, false);
-    delay(1000);
-    ESP.restart();
+    hold_pins_across_reset();
+    graceful_restart();
   });
 
   // Initialize ElegantOTA
@@ -869,9 +888,6 @@ String getConnectResultString(wl_status_t status) {
 }
 
 void ota_monitor() {
-
-  ElegantOTA.loop();
-
   if (ota_active && ota_timeout_timer.elapsed()) {
     // OTA timeout, try to restore can and clear the update event
     set_event(EVENT_OTA_UPDATE_TIMEOUT, 0);
@@ -1023,6 +1039,11 @@ String processor(const String& var) {
     } else {
       content += "<h4>Wifi state: " + getConnectResultString(status) + "</h4>";
     }
+
+    if (ap_active) {
+      content += "<h4>Access Point active: " + WiFi.softAPIP().toString() + "</h4>";
+    }
+
     // Close the block
     content += "</div>";
 
@@ -1232,32 +1253,13 @@ String processor(const String& var) {
         content += "</h4>";
       }
 
-      if (datalayer.battery.status.current_dA == 0) {
-        content += "<h4>Battery idle</h4>";
-      } else if (datalayer.battery.status.current_dA < 0) {
-        content += "<h4>Battery discharging!";
-        if (datalayer.battery.settings.inverter_limits_discharge) {
-          content += " (Inverter limiting)</h4>";
-        } else {
-          if (datalayer.battery.settings.user_settings_limit_discharge) {
-            content += " (Settings limiting)</h4>";
-          } else {
-            content += " (Battery limiting)</h4>";
-          }
-        }
-        content += "</h4>";
-      } else {  // > 0 , positive current
-        content += "<h4>Battery charging!";
-        if (datalayer.battery.settings.inverter_limits_charge) {
-          content += " (Inverter limiting)</h4>";
-        } else {
-          if (datalayer.battery.settings.user_settings_limit_charge) {
-            content += " (Settings limiting)</h4>";
-          } else {
-            content += " (Battery limiting)</h4>";
-          }
-        }
-      }
+      content += "<h4>" +
+                 String(get_charging_status_text(datalayer.battery.status.current_dA,
+                                                 datalayer.battery.settings.inverter_limits_charge,
+                                                 datalayer.battery.settings.inverter_limits_discharge,
+                                                 datalayer.battery.settings.user_settings_limit_charge,
+                                                 datalayer.battery.settings.user_settings_limit_discharge)) +
+                 "</h4>";
 
       content += "<h4>System status: ";
       switch (datalayer.system.status.system_status) {
@@ -1816,7 +1818,7 @@ String processor(const String& var) {
 
 void onOTAStart() {
   //try to Pause the battery
-  setBatteryPause(true, true);
+  setBatteryPause(true, false, EquipmentStop::UNCHANGED, false);
 
   // Log when OTA has started
   set_event(EVENT_OTA_UPDATE, 0);
@@ -1845,15 +1847,13 @@ void onOTAEnd(bool success) {
 
   // Log when OTA has finished
   if (success) {
-    //Equipment STOP without persisting the equipment state before restart
-    // Max Charge/Discharge = 0; CAN = stop; contactors = open
-    setBatteryPause(true, true, true, false);
-    // a reboot will be done by the OTA library. no need to do anything here
     logging.println("OTA update finished successfully!");
+    hold_pins_across_reset();
+    graceful_restart();
   } else {
     logging.println("There was an error during OTA update!");
-    //try to Resume the battery pause and CAN communication
-    setBatteryPause(false, false);
+    // Unpause battery (preserving equipment stop if set)
+    setBatteryPause(false, false, EquipmentStop::UNCHANGED, false);
   }
 }
 
