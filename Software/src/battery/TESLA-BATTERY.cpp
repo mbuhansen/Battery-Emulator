@@ -2,6 +2,7 @@
 #include <cstring>  //For unit test
 #include "../battery/BATTERIES.h"
 #include "../communication/can/comm_can.h"
+#include "../communication/contactorcontrol/comm_contactorcontrol.h"
 #include "../datalayer/datalayer.h"
 #include "../datalayer/datalayer_extended.h"  //For Advanced Battery Insights webpage
 #include "../devboard/utils/events.h"
@@ -547,6 +548,12 @@ void TeslaBattery::
     set_event_latched(EVENT_CONTACTOR_WELDED, 0);
   } else if (BMS_contactorState != 5) {
     clear_event(EVENT_CONTACTOR_WELDED);
+  }
+
+  // Pack-internal contactors: DC bus is live only when the BMS confirms CLOSED (4).
+  // Guarded so the GPIO contactor state machine stays authoritative when enabled.
+  if (!contactor_control_enabled) {
+    datalayer.system.status.dc_bus_live = (battery_contactor == 4);
   }
 
   if (user_selected_tesla_GTW_chassisType > 1) {  //{{0, "Model S"}, {1, "Model X"}, {2, "Model 3"}, {3, "Model Y"}};
@@ -1300,6 +1307,8 @@ void TeslaBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
       BMS_isolationResistance =
           ((rx_frame.data.u8[3] & (0x1FU)) << 5) |
           ((rx_frame.data.u8[2] >> 3) & (0x1FU));  //19|10@1+ (10,0) [0|0] "kOhm"/to datalayer_extended
+      datalayer_battery->status.insulation_resistance_kOhm = BMS_isolationResistance * 10;
+      datalayer_battery->status.insulation_resistance_available = true;
       //BMS_chargeRequest = ((rx_frame.data.u8[3] >> 5) & (0x01U));
       BMS_chargeRequest = static_cast<bool>(extract_signal_value(rx_frame.data.u8, 29, 1));
       BMS_keepWarmRequest = ((rx_frame.data.u8[3] >> 6) & (0x01U));
