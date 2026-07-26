@@ -1809,8 +1809,6 @@ const char* getCANInterfaceName(CAN_Interface interface) {
         </div>
 
         </div>
-
-        </div>
         </div>
 
         <div class="settings-card">
