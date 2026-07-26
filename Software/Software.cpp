@@ -274,13 +274,17 @@ static void filter_inverter_limits(void) {
     power_filter_initialized = true;
   } else {
     if (charge_in > charge_power_W_filtered) {
-      charge_power_W_filtered = (charge_in * 10 + charge_power_W_filtered * 90) / 100;
+      /* Round the ramp step up (not truncate down) so the filtered value can
+         actually reach charge_in instead of asymptoting 1 W below it forever -
+         truncation would otherwise leave a permanent deficit that shows up as
+         e.g. 29.9A instead of 30A once converted back to current. */
+      charge_power_W_filtered = (charge_in * 10 + charge_power_W_filtered * 90 + 99) / 100;
     } else {
       charge_power_W_filtered = charge_in;
     }
 
     if (discharge_in > discharge_power_W_filtered) {
-      discharge_power_W_filtered = (discharge_in * 10 + discharge_power_W_filtered * 90) / 100;
+      discharge_power_W_filtered = (discharge_in * 10 + discharge_power_W_filtered * 90 + 99) / 100;
     } else {
       discharge_power_W_filtered = discharge_in;
     }
