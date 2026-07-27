@@ -44,3 +44,7 @@ USER_SECRETS.h
 
 # Ignore generated ESP-IDF component manifest
 Software/idf_component.yml
+
+# Ignore auto-generated root files from ESP-IDF tooling
+/CMakeLists.txt
+/dependencies.lock
