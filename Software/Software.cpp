@@ -47,7 +47,6 @@ unsigned long previousMillis10ms = 0;
 unsigned long previousMillisUpdateVal = 0;
 // Task time measurement for debugging
 MyTimer core_task_timer_10s(INTERVAL_10_S);
-MyTimer soc_save_timer(INTERVAL_60_S);
 uint64_t start_time_10ms = 0;
 uint64_t start_time_values = 0;
 uint64_t start_time_cantx = 0;
@@ -55,6 +54,7 @@ TaskHandle_t main_loop_task;
 TaskHandle_t connectivity_loop_task;
 TaskHandle_t logging_loop_task;
 TaskHandle_t mqtt_loop_task;
+TaskHandle_t soc_persist_loop_task;
 Watchdog mqtt_loop_watchdog;
 
 Logging logging;
@@ -661,9 +661,6 @@ void core_loop(void*) {
       }
 
       update_calculated_values(currentMillis);
-      if (soc_save_timer.elapsed() && datalayer.battery.status.real_soc != 0) {
-        store_settings_soc();  // Persist SOC so it survives a restart instead of reading 0%
-      }
       update_machineryprotection();  // Check safeties
       filter_charge_taper_soc();     // Taper charge limit near full SOC (runs after safeties, before LPF)
       filter_inverter_limits();      // Smooth limits towards inverter (runs after safeties on purpose)
@@ -733,6 +730,18 @@ void mqtt_loop(void*) {
   }
 }
 
+// Periodically persists SOC to NVS off the CAN-critical core_loop task, since
+// the underlying flash write blocks for tens of ms.
+void soc_persist_loop(void*) {
+  MyTimer soc_save_timer(INTERVAL_60_S);
+  while (true) {
+    if (soc_save_timer.elapsed() && datalayer.battery.status.real_soc != 0) {
+      store_settings_soc();  // Persist SOC so it survives a restart instead of reading 0%
+    }
+    delay(1000);
+  }
+}
+
 // Initialization
 void setup() {
   init_hal();
@@ -750,6 +759,11 @@ void setup() {
     xTaskCreatePinnedToCore((TaskFunction_t)&connectivity_loop, "connectivity_loop", 4096, NULL, TASK_CONNECTIVITY_PRIO,
                             &connectivity_loop_task, esp32hal->WIFICORE());
   }
+
+  // Runs unconditionally (unlike WiFi/SD tasks above) since SOC persistence
+  // must work regardless of those being enabled.
+  xTaskCreatePinnedToCore((TaskFunction_t)&soc_persist_loop, "soc_persist_loop", 4096, NULL, TASK_CONNECTIVITY_PRIO,
+                          &soc_persist_loop_task, esp32hal->WIFICORE());
 
   led_init();
 
