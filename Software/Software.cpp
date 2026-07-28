@@ -47,6 +47,7 @@ unsigned long previousMillis10ms = 0;
 unsigned long previousMillisUpdateVal = 0;
 // Task time measurement for debugging
 MyTimer core_task_timer_10s(INTERVAL_10_S);
+MyTimer soc_save_timer(INTERVAL_60_S);
 uint64_t start_time_10ms = 0;
 uint64_t start_time_values = 0;
 uint64_t start_time_cantx = 0;
@@ -660,6 +661,9 @@ void core_loop(void*) {
       }
 
       update_calculated_values(currentMillis);
+      if (soc_save_timer.elapsed() && datalayer.battery.status.real_soc != 0) {
+        store_settings_soc();  // Persist SOC so it survives a restart instead of reading 0%
+      }
       update_machineryprotection();  // Check safeties
       filter_charge_taper_soc();     // Taper charge limit near full SOC (runs after safeties, before LPF)
       filter_inverter_limits();      // Smooth limits towards inverter (runs after safeties on purpose)

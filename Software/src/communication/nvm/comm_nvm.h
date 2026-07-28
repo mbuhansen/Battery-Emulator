@@ -27,6 +27,15 @@ void init_stored_settings();
  */
 void store_settings_equipment_stop();
 
+/**
+ * @brief Store the last known SOC, so it can be restored at boot
+ *
+ * @param[in] void
+ *
+ * @return void
+ */
+void store_settings_soc();
+
 void erase_phy_cal_data();
 
 /**
