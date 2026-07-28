@@ -447,11 +447,12 @@ struct DATALAYER_INFO_FORD_MACH_E {
   uint16_t pid_hvb_contactor_negative_bus_leak_resistance;
   uint16_t pid_hvb_contactor_overall_leak_resistance;
   uint16_t pid_hvb_contactor_open_leak_resistance;
-  uint8_t pid_hvb_soh;
   uint16_t pid_hvb_voltage;
+  uint16_t pid_hvb_max_charge_current;
   uint16_t pid_hvb_calendar_age_months;
   uint16_t pid_battery_capacity_ah;
   uint8_t pid_maintenance_rebalance_status;
+  uint8_t pid_hvb_soh;
 };
 
 struct DATALAYER_INFO_GEELY_GEOMETRY_C {
@@ -1056,7 +1057,11 @@ class DataLayerExtended {
       DATALAYER_INFO_KIAHYUNDAI64 KiaHyundai64_2;
     };
     DATALAYER_INFO_TESLA tesla;
-    DATALAYER_INFO_NISSAN_LEAF nissanleaf;
+    struct {
+      DATALAYER_INFO_NISSAN_LEAF nissanleaf;
+      DATALAYER_INFO_NISSAN_LEAF nissanleaf_2;
+      DATALAYER_INFO_NISSAN_LEAF nissanleaf_3;
+    };
     DATALAYER_INFO_MEB meb;
     DATALAYER_INFO_VOLVO_HYBRID VolvoHybrid;
     DATALAYER_INFO_ZOE zoe;
