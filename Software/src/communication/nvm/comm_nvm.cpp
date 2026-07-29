@@ -58,10 +58,6 @@ void init_stored_settings() {
     set_event(EVENT_EQUIPMENT_STOP, 1);
   }
 
-  // Seed SOC with the last known value so it doesn't briefly read 0% before the battery
-  // (or, in a Controller/Node setup, the first node) reports in after a restart.
-  datalayer.battery.status.real_soc = (uint16_t)settings.getUInt("LASTSOC", 0);
-
   //settings.clear();  // If this clear function is executed, no settings will be read from storage. For dev
 
   esp32hal->set_default_configuration_values();
@@ -319,11 +315,6 @@ void clear_wifi_sta_settings() {
 void store_settings_equipment_stop() {
   BatteryEmulatorSettingsStore settings(false);
   settings.saveBool("EQUIPMENT_STOP", datalayer.system.info.equipment_stop_active);
-}
-
-void store_settings_soc() {
-  BatteryEmulatorSettingsStore settings(false);
-  settings.saveUInt("LASTSOC", datalayer.battery.status.real_soc);
 }
 
 // Erase RF PHY calibration data (the "phy" NVS namespace — untouched by
