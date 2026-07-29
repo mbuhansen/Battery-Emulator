@@ -137,6 +137,9 @@ static bool supports_byd_autocal_metrics(Battery* b) {
 static bool supports_insulation(Battery* b) {
   return b != nullptr && b->supports_insulation_resistance();
 }
+static bool supports_balancing_cmd(Battery* b) {
+  return b != nullptr && (b->supports_balancing() || b->supports_balancing_request());
+}
 
 static const SensorConfig batterySensorConfigTemplate[] = {
     {"SOC", "SOC (Scaled)", "%", "battery", always},
@@ -201,17 +204,31 @@ static const BatteryTarget battery_targets[] = {
 // zero-copy const char* literals.
 static String info_topics[3];
 
-static const SensorConfig buttonConfigs[] = {{"BMSRESET", "Reset BMS", nullptr, nullptr, nullptr},
-                                             {"PAUSE", "Pause charge/discharge", nullptr, nullptr, nullptr},
-                                             {"RESUME", "Resume charge/discharge", nullptr, nullptr, nullptr},
-                                             {"RESTART", "Restart Battery Emulator", nullptr, nullptr, nullptr},
-                                             {"STOP", "Open Contactors", nullptr, nullptr, nullptr}};
+static const SensorConfig buttonConfigs[] = {
+    {"BMSRESET", "Reset BMS", nullptr, nullptr, nullptr},
+    {"PAUSE", "Pause charge/discharge", nullptr, nullptr, nullptr},
+    {"RESUME", "Resume charge/discharge", nullptr, nullptr, nullptr},
+    {"RESTART", "Restart Battery Emulator", nullptr, nullptr, nullptr},
+    {"STOP", "Open Contactors", nullptr, nullptr, nullptr},
+    {"STARTBALANCING", "Start balancing", nullptr, nullptr, supports_balancing_cmd},
+    {"STOPBALANCING", "Stop balancing", nullptr, nullptr, supports_balancing_cmd}};
 
 // All commands the emulator subscribes to. The matching topics are precomputed once in
 // init_mqtt() so that mqtt_message_received() does not rebuild six temporary Strings on
 // every received message.
-enum ButtonCommand { BTN_BMSRESET = 0, BTN_PAUSE, BTN_RESUME, BTN_RESTART, BTN_STOP, BTN_SET_LIMITS, BTN_COUNT };
-static const char* button_commands[BTN_COUNT] = {"BMSRESET", "PAUSE", "RESUME", "RESTART", "STOP", "SET_LIMITS"};
+enum ButtonCommand {
+  BTN_BMSRESET = 0,
+  BTN_PAUSE,
+  BTN_RESUME,
+  BTN_RESTART,
+  BTN_STOP,
+  BTN_STARTBALANCING,
+  BTN_STOPBALANCING,
+  BTN_SET_LIMITS,
+  BTN_COUNT
+};
+static const char* button_commands[BTN_COUNT] = {"BMSRESET", "PAUSE",          "RESUME",        "RESTART",
+                                                 "STOP",     "STARTBALANCING", "STOPBALANCING", "SET_LIMITS"};
 static String button_command_topics[BTN_COUNT];
 
 static String generateCommonInfoAutoConfigTopic(const char* entity_id) {
@@ -408,6 +425,10 @@ static const char* button_discovery_icon(const char* command) {
     return "mdi:battery-sync-outline";
   if (strcmp(command, "STOP") == 0)
     return "mdi:battery-remove-outline";
+  if (strcmp(command, "STARTBALANCING") == 0)
+    return "mdi:scale-balance";
+  if (strcmp(command, "STOPBALANCING") == 0)
+    return "mdi:stop-circle-outline";
   return nullptr;
 }
 
@@ -786,6 +807,9 @@ static bool publish_buttons_discovery(void) {
       JsonDocument& doc = shared_doc;
       for (int i = 0; i < sizeof(buttonConfigs) / sizeof(buttonConfigs[0]); i++) {
         const SensorConfig& config = buttonConfigs[i];
+        if (config.condition != nullptr && !config.condition(battery)) {
+          continue;
+        }
         doc["name"] = config.name;
         doc["unique_id"] = default_entity_id_prefix + config.entity_id;
         doc["command_topic"] = generateButtonTopic(config.entity_id);
@@ -843,6 +867,20 @@ void mqtt_message_received(char* topic_raw, int topic_len, char* data, int data_
 
   if (strcmp(topic, button_command_topics[BTN_STOP].c_str()) == 0) {
     setBatteryPause(true, false, EquipmentStop::STOP);
+  }
+
+  if (strcmp(topic, button_command_topics[BTN_STARTBALANCING].c_str()) == 0) {
+    if (battery != nullptr && (battery->supports_balancing() || battery->supports_balancing_request())) {
+      logging.println("Triggering start balancing");
+      battery->initiate_balancing();
+    }
+  }
+
+  if (strcmp(topic, button_command_topics[BTN_STOPBALANCING].c_str()) == 0) {
+    if (battery != nullptr && (battery->supports_balancing() || battery->supports_balancing_request())) {
+      logging.println("Triggering stop balancing");
+      battery->end_balancing();
+    }
   }
 
   if (strcmp(topic, button_command_topics[BTN_SET_LIMITS].c_str()) == 0) {
