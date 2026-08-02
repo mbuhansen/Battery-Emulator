@@ -112,27 +112,17 @@ void KostalInverterProtocol::update_values() {
     average_temperature_dC = 0;
   }
 
-  // Only update these values after first 8 cyclic frames
-  if (f2_startup_count > 8) {
-    float2frame(CYCLIC_DATA, (float)datalayer.battery.status.voltage_dV / 10, 6);  // Confirmed OK mapping
-    float2frame(CYCLIC_DATA, (float)average_temperature_dC / 10, 14);
+  float2frame(CYCLIC_DATA, (float)datalayer.battery.status.voltage_dV / 10, 6);  // Confirmed OK mapping
+  float2frame(CYCLIC_DATA, (float)average_temperature_dC / 10, 14);
 
-    // Max discharge and charge currents
-    float2frame(CYCLIC_DATA, (float)datalayer.battery.status.max_discharge_current_dA / 10, 26);
+  // Max discharge and charge currents
+  float2frame(CYCLIC_DATA, (float)datalayer.battery.status.max_discharge_current_dA / 10, 26);
 
-    // When SoC is 100%, drop down allowed charge current.
-    if ((datalayer.battery.status.reported_soc / 100) < 100) {
-      float2frame(CYCLIC_DATA, (float)datalayer.battery.status.max_charge_current_dA / 10, 34);
-    } else {
-      float2frame(CYCLIC_DATA, 0.0, 34);
-    }
-
+  // When SoC is 100%, drop down allowed charge current.
+  if ((datalayer.battery.status.reported_soc / 100) < 100) {
+    float2frame(CYCLIC_DATA, (float)datalayer.battery.status.max_charge_current_dA / 10, 34);
   } else {
-    // During startup (first 8 frames), send default/zero values for voltage and temperature
-    float2frame(CYCLIC_DATA, 0.0, 6);   // Voltage = 0
-    float2frame(CYCLIC_DATA, 0.0, 14);  // Temperature = 0
-    float2frame(CYCLIC_DATA, 0.0, 26);  // Max discharge current = 0
-    float2frame(CYCLIC_DATA, 0.0, 34);  // Max charge current = 0
+    float2frame(CYCLIC_DATA, 0.0, 34);
   }
 
   float2frame(BATTERY_INFO, (float)datalayer.battery.info.max_design_voltage_dV / 10, 6);
@@ -264,20 +254,13 @@ void KostalInverterProtocol::receive()  // Runs as fast as possible to handle th
               if (RS485_RXFRAME[6] == 0x5E) {
                 // Set State function
                 if (RS485_RXFRAME[7] == 0x00) {
-                  // Allow contactor closing request received
-                  if (f2_startup_count > 8) {
-                    // Startup complete, start timer immediately if not already running
-                    if (!contactorcloseTimerActive) {
-                      contactorcloseTimerStart = millis();
-                      contactorcloseTimerActive = true;
-                      dbg_message("contactor close timer start (5 sec)");
-                    } else {
-                      dbg_message("contactor close timer already running - ignoring duplicate message");
-                    }
+                  // Allow contactor closing request received - start timer immediately if not already running
+                  if (!contactorcloseTimerActive) {
+                    contactorcloseTimerStart = millis();
+                    contactorcloseTimerActive = true;
+                    dbg_message("contactor close timer start (5 sec)");
                   } else {
-                    // Still in startup phase, remember the request
-                    pendingContactorCloseRequest = true;
-                    dbg_message("contactor close request pending - waiting for f2_startup_count > 8");
+                    dbg_message("contactor close timer already running - ignoring duplicate message");
                   }
                   send_kostal(ACK_FRAME, 8);  // ACK
                 } else if (RS485_RXFRAME[7] == 0x04) {
@@ -309,14 +292,6 @@ void KostalInverterProtocol::receive()  // Runs as fast as possible to handle th
                     f2_startup_count++;
                   }
 
-                  // Check if we just completed startup and have a pending contactor close request
-                  if (f2_startup_count == 8 && pendingContactorCloseRequest && !contactorcloseTimerActive) {
-                    contactorcloseTimerStart = millis();
-                    contactorcloseTimerActive = true;
-                    pendingContactorCloseRequest = false;
-                    dbg_message("contactor close timer start (5 sec) - pending request activated");
-                  }
-
                   uint8_t tmpframe[64];  //copy values to prevent data manipulation during rewrite/crc calculation
                   memcpy(tmpframe, CYCLIC_DATA, 64);
                   tmpframe[62] = calculate_kostal_crc(tmpframe, 62);
@@ -327,7 +302,6 @@ void KostalInverterProtocol::receive()  // Runs as fast as possible to handle th
                 if (code == 0x84a) {
                   // Reset f2_startup_count when battery info is requested (inverter restart)
                   f2_startup_count = 0;
-                  pendingContactorCloseRequest = false;  // Clear any pending request on restart
                   //Send  battery info
                   uint8_t tmpframe[40];  //copy values to prevent data manipulation during rewrite/crc calculation
                   memcpy(tmpframe, BATTERY_INFO, 40);
