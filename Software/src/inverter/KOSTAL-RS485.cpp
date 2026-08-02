@@ -170,10 +170,8 @@ void KostalInverterProtocol::update_values() {
     }
   }
 
-  if (nominal_voltage_dV > 0) {
-    float2frame(CYCLIC_DATA, (float)(datalayer.battery.info.total_capacity_Wh / nominal_voltage_dV * 10),
-                30);  // Battery capacity Ah
-  }
+  // Battery gross capacity, Ah (bytes 30-33) is left at the static value from CYCLIC_DATA
+  // (25.0 Ah, matching a BYD HVS pack) so it stays consistent with the info frame.
   float2frame(CYCLIC_DATA, (float)datalayer.battery.status.temperature_max_dC / 10, 38);
   float2frame(CYCLIC_DATA, (float)datalayer.battery.status.temperature_min_dC / 10, 42);
 

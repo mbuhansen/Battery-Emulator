@@ -23,7 +23,6 @@ class KostalInverterProtocol : public Rs485InverterProtocol {
 
   const uint8_t KOSTAL_FRAMEHEADER[5] = {0x62, 0xFF, 0x02, 0xFF, 0x29};
   const uint8_t KOSTAL_FRAMEHEADER2[5] = {0x63, 0xFF, 0x02, 0xFF, 0x29};
-  uint16_t nominal_voltage_dV = 0;
   int16_t average_temperature_dC = 0;
   uint8_t incoming_message_counter = RS485_HEALTHY;
   bool inverter_detected = false;
@@ -50,19 +49,21 @@ class KostalInverterProtocol : public Rs485InverterProtocol {
 uint8_t BATTERY_INFO[40] = {
     0x00,                         // First zero byte pointer
     0xE2, 0xFF, 0x02, 0xFF, 0x29, // Frame header
-    0x33, 0x33, 0xAF, 0x43,       // Max Voltage
-    0x01, 0x07, 0xD8, 0x56,       // Manufacture date (Epoch time) (BYD: GetBatteryInfo this[0x10ac])
+    // NOTE: This is the UNSTUFFED frame. null_stuffer() inserts the COBS pointers
+    // when the frame is sent, so all real 0x00 bytes must be kept as 0x00 here.
+    0x33, 0x33, 0xAF, 0x43,       // Max Voltage (overwritten in update_values)
+    0x00, 0x00, 0xD8, 0x56,       // Manufacture date (Epoch time) (BYD: GetBatteryInfo this[0x10ac])
     0xF5, 0x42, 0x45, 0x06,       // Battery Serial number? Modbus register 527 - 0x10b0
-    0x01, 0x06, 0xC8, 0x41,       // Nominal Capacity (0x10b4)
+    0x00, 0x00, 0xC8, 0x41,       // Nominal Capacity (0x10b4)
     0x1A, 0x03,                   // Battery Firmware, modbus register 586  (0x10b8)
     0x01,                         // (BYD: GetBatteryInfo this[0x10ba])
-    0x03,                         // ?
+    0x00,                         // ?
     0x59, 0x42,                   // Vendor identifier
                                   //       0x59 0x42 -> 'YB' -> BYD
                                   //       0x59 0x44 -> 'YD' -> Dyness
-    0x01, 0x02,                   // (BYD: GetBatteryInfo this[0x10be])
-    0x02, 0x02,
-    0x03, 0x06,                   // Number of blocks in series (uint16)
+    0x00, 0x00,                   // (BYD: GetBatteryInfo this[0x10be])
+    0x02, 0x00,
+    0x03, 0x00,                   // Number of blocks in series (uint16)
     0xA0, 0xFF, 0xFF, 0xFF,
     0x89, // CRC
     0x00};
