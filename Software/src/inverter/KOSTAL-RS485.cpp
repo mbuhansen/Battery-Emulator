@@ -135,12 +135,7 @@ void KostalInverterProtocol::update_values() {
     float2frame(CYCLIC_DATA, 0.0, 34);  // Max charge current = 0
   }
 
-  // Set nominal voltage to value between min and max voltage set by battery (Example 400 and 300 results in 350V)
-  // This is for BATTERY_INFO, always updated regardless of f2_startup_count
-  nominal_voltage_dV =
-      (((datalayer.battery.info.max_design_voltage_dV - datalayer.battery.info.min_design_voltage_dV) / 2) +
-       datalayer.battery.info.min_design_voltage_dV);
-  float2frame(BATTERY_INFO, (float)nominal_voltage_dV / 10, 6);
+  float2frame(BATTERY_INFO, (float)datalayer.battery.info.max_design_voltage_dV / 10, 6);
 
   // Max voltage is always sent
   float2frame(CYCLIC_DATA, (float)datalayer.battery.info.max_design_voltage_dV / 10, 10);
