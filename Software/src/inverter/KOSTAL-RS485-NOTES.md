@@ -100,14 +100,20 @@ Max continuous current: 25 A (HVS), 50 A (HVM).
 The reference log is from an HVS 7.7 and sends **Model ID = 2**, which is exactly that
 model's number in the list. Blocks in series = 3 matches its 3 modules independently.
 
-This suggests the inverter looks the remaining specs up from the model id rather than
-receiving them: usable energy and the operating voltage window appear nowhere in the
-frame. **Unverified** - worth testing by changing the model id and seeing whether the
-inverter reports a different battery or a different voltage window.
+The inverter clearly looks the model up: with the old frame the field was 0 and the
+inverter identified the battery as an old BYD HV pack, with 2 it identifies an HVS 7.7.
+Usable energy and the operating voltage window appear nowhere in the frame, so those must
+come from the same table.
 
-If it is true, an emulated pack outside the claimed model's voltage window may get limited
-or faulted. Model 2 means 240-345 V and 25 A, while a BMW i3 60Ah pack runs 259-395 V.
-Model 9 (HVM 19.3, 280-403 V, 50 A) is the closest fit for that pack.
+**The lookup does not clamp the reported voltage.** With model id 2 (window 240-345 V) the
+inverter still reports our 395 V correctly over SunSpec, so live values are taken from our
+frames rather than from the table.
+
+Still open: whether the table limits **current**. HVS is rated 25 A max continuous. If the
+inverter stays below 25 A while we advertise more in cyclic bytes 26-29 / 34-37, the model
+id is limiting; if it goes above, the field is cosmetic. Observable during normal charging,
+no firmware change needed. Model 9 (HVM 19.3, 280-403 V, 50 A) would be the closest fit for
+a BMW i3 60Ah pack if a change turns out to be necessary.
 
 Other label values that do map onto the frame: 7.68 kWh / 307.2 V nominal = 25 Ah, the
 same 25 that the nominal capacity field carries, and also the same number as the 25 A max
