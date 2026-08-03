@@ -109,11 +109,13 @@ come from the same table.
 inverter still reports our 395 V correctly over SunSpec, so live values are taken from our
 frames rather than from the table.
 
-Still open: whether the table limits **current**. HVS is rated 25 A max continuous. If the
-inverter stays below 25 A while we advertise more in cyclic bytes 26-29 / 34-37, the model
-id is limiting; if it goes above, the field is cosmetic. Observable during normal charging,
-no firmware change needed. Model 9 (HVM 19.3, 280-403 V, 50 A) would be the closest fit for
-a BMW i3 60Ah pack if a change turns out to be necessary.
+**It does not limit current either.** With model id 2, rated 25 A max continuous, the
+inverter used the 30 A we sent as max discharge current: it reported 10913 W at 363.77 V,
+which is exactly 30 A times the live pack voltage. So the model id is identification only,
+and there is no need to pick a model whose window matches the emulated pack.
+
+Side effect confirmed: the inverter computes power itself as our current limit times the
+live pack voltage from cyclic bytes 6-9.
 
 Other label values that do map onto the frame: 7.68 kWh / 307.2 V nominal = 25 Ah, the
 same 25 that the nominal capacity field carries, and also the same number as the 25 A max
@@ -137,8 +139,8 @@ the emulator.
 3. **Gross capacity** (cyclic 30-33) from the actual pack instead of 25.0 Ah, and keep it
    equal to the info frame value.
 4. **Blocks in series** (info 32-33) - decide what this should reflect for a non-BYD pack.
-   Related: pick a **model id** (info 30-31) whose voltage window covers the real pack, if
-   the model-id lookup theory holds.
+   The **model id** (info 30-31) needs no change: it only affects which battery the
+   inverter names, not the voltage or current it allows.
 5. Consider deriving serial number and firmware from something real instead of the BYD
    log values, now that we know both are read back.
 
