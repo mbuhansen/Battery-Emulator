@@ -56,9 +56,10 @@ uint8_t BATTERY_INFO[40] = {
     0xF5, 0x42, 0x45, 0x06,       // Battery Serial number, confirmed: read back as BMS Serial Number
     0x00, 0x00, 0xC8, 0x41,       // Nominal Capacity, Ah (float32) (0x10b4)
                                   //   Inverter reports Nameplate Energy = this * info Max Voltage
-    0x1A, 0x03,                   // Battery Firmware, minor then major: 0x1A 0x03 -> 3.26
-                                  //   Confirmed read back by the inverter. BYD versions seen
-                                  //   in the wild are 3.22 and 3.24, matching the scheme.
+    0x1A, 0x03,                   // Battery Firmware, modbus register 586 / 0x24A, U32 (0x10b8)
+                                  //   Confirmed read back by the inverter as 794. Read as minor
+                                  //   then major that is 3.26, matching the 3.22 and 3.24 that
+                                  //   BYD packs are seen reporting elsewhere.
     0x01,                         // (BYD: GetBatteryInfo this[0x10ba])
     0x00,                         // ?
     0x59, 0x42,                   // Vendor identifier

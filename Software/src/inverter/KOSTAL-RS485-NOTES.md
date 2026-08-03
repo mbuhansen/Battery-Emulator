@@ -67,11 +67,13 @@ in that chain was originally `0x00`.
 
 Kostal's own Modbus map uses little-endian word order for 32-bit values. A client that
 assumes big-endian shows the two 16-bit words swapped, i.e. the value multiplied by 65536.
-SunSpec registers are big-endian and read correctly. Observed on four independent fields:
+SunSpec registers are big-endian and read correctly. All four fields below are declared U32
+in the Kostal documentation, for instance register 586 / `0x24A` for the firmware, which is
+why only these are affected. Observed on four independent fields:
 
 | Register | Client showed | Actual value |
 | --- | --- | --- |
-| Battery Firmware | `0x031A0000` | `0x0000031A`, read as 3.26 |
+| Battery Firmware | `0x031A0000` | `0x0000031A` = 794, reads as 3.26 |
 | Battery Model ID | 131072 | 2 |
 | Battery Gross Capacity | 1638400 | 25 Ah |
 | BMS Serial Number | 1123354181 | `0x064542F5` = 105202421 |
@@ -86,7 +88,7 @@ SunSpec registers are big-endian and read correctly. Observed on four independen
 | 10-13 | Manufacture date, epoch uint32 | static |
 | 14-17 | Serial number | **confirmed** -> "BMS Serial Number" |
 | 18-21 | Nominal capacity Ah, float32 (25.0) | **static, should be dynamic** |
-| 22-23 | Firmware, `minor.major` (`1A 03` -> 3.26) | **confirmed** -> "Battery Firmware" |
+| 22-23 | Firmware (`1A 03`, = 794, reads as 3.26) | **confirmed** -> "Battery Firmware" |
 | 24 | `0x01`, unknown | static |
 | 25 | `0x00`, unknown | static |
 | 26-27 | Vendor id, `YB` = BYD, `YD` = Dyness | static |
