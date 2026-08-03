@@ -143,6 +143,31 @@ the emulator.
 5. Consider deriving serial number and firmware from something real instead of the BYD
    log values, now that we know both are read back.
 
+### The two capacity fields are not the same in a real BYD
+
+Decoded from the reference logs, both verified by CRC:
+
+| Frame | Field | Value |
+| --- | --- | --- |
+| Info | bytes 18-21, nominal capacity | 25.0 Ah |
+| Cyclic | bytes 30-33, gross capacity | 23.000002 Ah |
+
+The cyclic value is identical at 98 % and at 100 % SoC, so it is **not** remaining charge.
+With 1048 cycles on the pack (cyclic bytes 54-55), 23.0 / 25.0 = 92 % reads as the present
+capacity after degradation against the nameplate one.
+
+We currently send the same number in both, because `total_capacity_Wh` is already the
+present capacity for the batteries we emulate - for a BMW i3 it is
+`battery_energy_content_maximum_Wh` straight from the BMS. Reconstructing a nameplate
+capacity would mean dividing by SoH, i.e. guessing at a number the datalayer does not have,
+and it would make the inverter's nameplate energy a from-the-factory figure rather than the
+real one.
+
+Evidence so far says the inverter takes SoH from info bytes 35-37 rather than from the
+ratio of these two fields: the two observed readings were 0 % and 255 %, while the ratio at
+those times was 800 % and 100 %. If the SoH probe contradicts that, divide the info field
+by `soh_pptt` instead of sending the same value twice.
+
 ### Why the capacity is referenced to the max voltage
 
 The inverter shows the capacity we send and, separately, that capacity times the voltage in
