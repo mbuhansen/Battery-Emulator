@@ -135,14 +135,28 @@ the emulator.
 1. **State of health.** Find which of bytes 35-37 is SoH, then feed it from
    `datalayer.battery.status.soh_pptt / 100`. Currently sends `0xFF` -> reads back 255 %.
    Probe: bytes 35/36/37 set to 100/80/60, whichever number appears identifies the byte.
-2. **Nominal capacity** (info 18-21) from the actual pack instead of 25.0 Ah.
-3. **Gross capacity** (cyclic 30-33) from the actual pack instead of 25.0 Ah, and keep it
-   equal to the info frame value.
+2. ~~**Nominal capacity** (info 18-21) from the actual pack instead of 25.0 Ah.~~ Done.
+3. ~~**Gross capacity** (cyclic 30-33) from the actual pack, equal to the info value.~~ Done.
 4. **Blocks in series** (info 32-33) - decide what this should reflect for a non-BYD pack.
    The **model id** (info 30-31) needs no change: it only affects which battery the
    inverter names, not the voltage or current it allows.
 5. Consider deriving serial number and firmware from something real instead of the BYD
    log values, now that we know both are read back.
+
+### Why the capacity is referenced to the max voltage
+
+The inverter shows the capacity we send and, separately, that capacity times the voltage in
+info bytes 6-9. Only one of the two can be made to match the physical pack, unless the true
+nominal voltage of the pack is known - and the datalayer only carries energy in Wh, not Ah,
+so any Ah figure has to be derived from a voltage anyway.
+
+Dividing the pack energy by the same max voltage we already send makes the **energy** exact
+and the two readings mutually consistent, at the cost of an Ah figure that reads low: a
+BMW i3 60Ah triple pack shows about 166 Ah instead of the physical 180 Ah. Energy was
+prioritised because that is what drives the inverter's kWh and SOC display.
+
+Sending the true Ah instead would overstate the energy by about 9 %. A real BYD does
+exactly that: an HVS 7.7 reports 25 Ah and therefore 8760 Wh against 7680 Wh on the label.
 
 ### Picking the nominal voltage for Ah calculations
 

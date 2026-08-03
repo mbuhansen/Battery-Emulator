@@ -130,6 +130,18 @@ void KostalInverterProtocol::update_values() {
   // Max voltage is always sent
   float2frame(CYCLIC_DATA, (float)datalayer.battery.info.max_design_voltage_dV / 10, 10);
 
+  // Battery capacity in Ah, carried by both frames and read back as "Nameplate Charge
+  // Capacity". The inverter derives its nameplate energy as this capacity times the voltage
+  // in BATTERY_INFO bytes 6-9, so referencing the capacity to that same voltage makes the
+  // reported energy equal the pack energy. Uses the reported capacity to stay consistent
+  // with the SOC we send, which is the scaled one.
+  if (datalayer.battery.info.max_design_voltage_dV > 0) {
+    float capacity_Ah = (float)datalayer.battery.info.reported_total_capacity_Wh /
+                        ((float)datalayer.battery.info.max_design_voltage_dV / 10);
+    float2frame(BATTERY_INFO, capacity_Ah, 18);
+    float2frame(CYCLIC_DATA, capacity_Ah, 30);
+  }
+
   //Only perform this operation when Shunt is in used and set to BMW SBOX
   if (user_selected_shunt_type == ShuntType::BmwSbox) {
     float2frame(CYCLIC_DATA, (float)(datalayer.shunt.measured_amperage_mA / 100) / 10, 18);
@@ -170,8 +182,6 @@ void KostalInverterProtocol::update_values() {
     }
   }
 
-  // Battery gross capacity, Ah (bytes 30-33) is left at the static value from CYCLIC_DATA
-  // (25.0 Ah, matching a BYD HVS pack) so it stays consistent with the info frame.
   float2frame(CYCLIC_DATA, (float)datalayer.battery.status.temperature_max_dC / 10, 38);
   float2frame(CYCLIC_DATA, (float)datalayer.battery.status.temperature_min_dC / 10, 42);
 
