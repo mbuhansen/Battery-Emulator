@@ -8,6 +8,47 @@ Reference log: `Kostal_byd_logs_Germanmann/Start Inverter after Battery on and c
 98-100% and afterwards.txt`, line 302, from a **BYD Premium Box HVS 7.7** (3 modules of
 2.56 kWh, 32 LFP cells each -> 3 * 32 * 3.65 V = 350.4 V max, 25 Ah).
 
+## Where this stands
+
+The goal is that the Kostal reports the **actually connected pack** instead of the BYD
+values that were hardcoded in the frame templates. Test rig: three BMW i3 60Ah packs in a
+master/slave setup, 66100 Wh reported total, 395.0 V max design voltage.
+
+Done and verified on hardware:
+
+- The frame arrays hold unstuffed bytes again, so every field decodes correctly.
+- Capacity is derived from the pack: `reported_total_capacity_Wh / max_design_voltage`,
+  written to both frames. Reads back as 167 Ah, matching 66100 / 395.
+- Confirmed field mapping for serial number, firmware, model id and the two capacities.
+- The model id only picks which battery the inverter names. It does **not** limit voltage
+  or current, so it can stay at 2.
+
+Open:
+
+1. **State of health reads 255 %.** A probe is in the frame: info bytes 35-37 are set to
+   100 / 80 / 60 so the readback identifies which byte carries it. Once known, feed it from
+   `datalayer.battery.status.soh_pptt / 100`. If none of the three shows up, SoH is not in
+   those bytes and the remaining candidates are info bytes 24, 25 and 28-29 - `CYCLIC_DATA`
+   has never changed, so the field has to come from the info frame.
+2. **Work / nameplate energy** should follow to about 66100 Wh once the inverter re-reads
+   the info frame. Pending at the time of writing.
+3. **Blocks in series** (info bytes 32-33) is still the BYD value 3. Decide what it should
+   mean for a non-BYD pack, if anything.
+4. Serial number and firmware are still the BYD log values. Both are read back by the
+   inverter, so they could be derived from something real.
+
+### How to test a change
+
+Values in `CYCLIC_DATA` appear immediately after a reflash. Values in `BATTERY_INFO` do
+not: the inverter caches that frame and only re-reads it when it asks with code `0x84a`,
+which it does at its own startup and after a battery restart. Restarting the battery is the
+quicker of the two.
+
+Because the info frame gets cached, it must not be answered with placeholder data. If the
+emulator itself has just booted, `reported_total_capacity_Wh` is still the 30000 Wh default
+and `max_design_voltage_dV` the 5000 default, and those wrong values would stick until the
+next `0x84a`. Watch for a nameplate around 60 Ah / 30000 Wh as the symptom.
+
 ## Critical gotcha: the arrays hold UNSTUFFED frames
 
 `BATTERY_INFO[]` and `CYCLIC_DATA[]` must contain the frame **before** COBS null stuffing.
