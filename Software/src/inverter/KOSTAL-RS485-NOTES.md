@@ -77,6 +77,42 @@ Field layout is documented inline in `KOSTAL-RS485.h`. Two notes:
   `update_values()`: once from the datalayer, then overwritten by the shunt/contactor
   logic further down. Only the second write reaches the inverter.
 
+## Cross-reference against the BYD Battery-Box Premium label
+
+The label on the physical box numbers the models, and the same numbering indexes the
+usable-energy and operating-voltage tables:
+
+| # | Model | Usable energy | Operating voltage |
+| --- | --- | --- | --- |
+| 1 | HVS 5.1 | 5.12 kWh | 160-230 V |
+| 2 | HVS 7.7 | 7.68 kWh | 240-345 V |
+| 3 | HVS 10.2 | 10.24 kWh | 320-460 V |
+| 4 | HVS 12.8 | 12.8 kWh | 400-576 V |
+| 5 | HVM 8.3 | 8.28 kWh | 120-173 V |
+| 6 | HVM 11.0 | 11.04 kWh | 160-230 V |
+| 7 | HVM 13.8 | 13.8 kWh | 200-288 V |
+| 8 | HVM 16.6 | 16.56 kWh | 240-345 V |
+| 9 | HVM 19.3 | 19.32 kWh | 280-403 V |
+| 10 | HVM 22.1 | 22.08 kWh | 320-460 V |
+
+Max continuous current: 25 A (HVS), 50 A (HVM).
+
+The reference log is from an HVS 7.7 and sends **Model ID = 2**, which is exactly that
+model's number in the list. Blocks in series = 3 matches its 3 modules independently.
+
+This suggests the inverter looks the remaining specs up from the model id rather than
+receiving them: usable energy and the operating voltage window appear nowhere in the
+frame. **Unverified** - worth testing by changing the model id and seeing whether the
+inverter reports a different battery or a different voltage window.
+
+If it is true, an emulated pack outside the claimed model's voltage window may get limited
+or faulted. Model 2 means 240-345 V and 25 A, while a BMW i3 60Ah pack runs 259-395 V.
+Model 9 (HVM 19.3, 280-403 V, 50 A) is the closest fit for that pack.
+
+Other label values that do map onto the frame: 7.68 kWh / 307.2 V nominal = 25 Ah, the
+same 25 that the nominal capacity field carries, and also the same number as the 25 A max
+continuous current because HVS is rated 1C.
+
 ## The inverter caches BATTERY_INFO
 
 `BATTERY_INFO` is only sent when the inverter asks with code `0x84a`, which it does at
@@ -95,6 +131,8 @@ the emulator.
 3. **Gross capacity** (cyclic 30-33) from the actual pack instead of 25.0 Ah, and keep it
    equal to the info frame value.
 4. **Blocks in series** (info 32-33) - decide what this should reflect for a non-BYD pack.
+   Related: pick a **model id** (info 30-31) whose voltage window covers the real pack, if
+   the model-id lookup theory holds.
 5. Consider deriving serial number and firmware from something real instead of the BYD
    log values, now that we know both are read back.
 
