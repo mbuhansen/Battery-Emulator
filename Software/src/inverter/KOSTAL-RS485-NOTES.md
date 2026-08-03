@@ -21,7 +21,8 @@ Done and verified on hardware:
   written to both frames. Reads back as 167 Ah, matching 66100 / 395.
 - Confirmed field mapping for serial number, firmware, model id and the two capacities.
 - The model id only picks which battery the inverter names. It does **not** limit voltage
-  or current, so it can stay at 2.
+  or current. Set to **9** (HVM 19.3, 280-403 V, 50 A) so the name the inverter shows is the
+  label entry closest to the emulated pack; the reference log's own value was 2.
 
 Open:
 
@@ -93,8 +94,8 @@ why only these are affected. Observed on four independent fields:
 | 25 | `0x00`, unknown | static |
 | 26-27 | Vendor id, `YB` = BYD, `YD` = Dyness | static |
 | 28-29 | Unknown | static |
-| 30-31 | Model ID, uint16 = 2 | **confirmed** -> "Battery Model ID" |
-| 32-33 | Blocks in series, uint16 = 3 | **static, should be dynamic** |
+| 30-31 | Model ID, uint16 = 9 (HVM 19.3) | **confirmed** -> "Battery Model ID" |
+| 32-33 | Blocks in series, uint16 = 7 | static, matches the model id |
 | 34 | `0xA0`, unknown | static |
 | 35-37 | `FF FF FF`, one of these is State of Health in % | **probe in progress** |
 | 38 | CRC | recomputed on send |
@@ -142,6 +143,8 @@ Max continuous current: 25 A (HVS), 50 A (HVM).
 
 The reference log is from an HVS 7.7 and sends **Model ID = 2**, which is exactly that
 model's number in the list. Blocks in series = 3 matches its 3 modules independently.
+We send model id 9 with 7 blocks, the HVM 19.3 and its 7 modules of 2.76 kWh, keeping the
+same relationship between the two fields.
 
 The inverter clearly looks the model up: with the old frame the field was 0 and the
 inverter identified the battery as an old BYD HV pack, with 2 it identifies an HVS 7.7.
@@ -180,9 +183,12 @@ the emulator.
    Probe: bytes 35/36/37 set to 100/80/60, whichever number appears identifies the byte.
 2. ~~**Nominal capacity** (info 18-21) from the actual pack instead of 25.0 Ah.~~ Done.
 3. ~~**Gross capacity** (cyclic 30-33) from the actual pack, equal to the info value.~~ Done.
-4. **Blocks in series** (info 32-33) - decide what this should reflect for a non-BYD pack.
-   The **model id** (info 30-31) needs no change: it only affects which battery the
-   inverter names, not the voltage or current it allows.
+4. ~~**Blocks in series** (info 32-33) - decide what this should reflect for a non-BYD pack.~~
+   Set to 7, the module count of the HVM 19.3 that the model id now claims, so the two
+   fields agree. Whether the inverter derives anything from it is still unverified - watch
+   the readback on the next info re-read.
+   The **model id** (info 30-31) is now 9: it only affects which battery the inverter names,
+   not the voltage or current it allows.
 5. Consider deriving serial number and firmware from something real instead of the BYD
    log values, now that we know both are read back.
 

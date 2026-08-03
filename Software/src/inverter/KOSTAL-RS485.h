@@ -66,8 +66,13 @@ uint8_t BATTERY_INFO[40] = {
                                   //       0x59 0x42 -> 'YB' -> BYD
                                   //       0x59 0x44 -> 'YD' -> Dyness
     0x00, 0x00,                   // (BYD: GetBatteryInfo this[0x10be])
-    0x02, 0x00,                   // Battery Model ID (uint16), confirmed: read back as 2
-    0x03, 0x00,                   // Number of blocks in series (uint16)
+    0x09, 0x00,                   // Battery Model ID (uint16), confirmed: read back as sent.
+                                  //   9 = HVM 19.3 (280-403 V, 50 A), the label entry closest
+                                  //   to the emulated pack. Identification only - it does not
+                                  //   clamp voltage or current, see KOSTAL-RS485-NOTES.md.
+    0x07, 0x00,                   // Number of blocks in series (uint16)
+                                  //   7 = the module count of an HVM 19.3, matching the
+                                  //   model id above. The reference HVS 7.7 log sent 3.
     // PROBE: one of bytes 35-37 is State of Health in % (log sends 0xFF -> reads back 255%,
     // the old frame sent 0x00 -> read back 0%). Distinct values so the readback identifies
     // which byte it is: 35 -> 100%, 36 -> 80%, 37 -> 60%. Kept non-zero so COBS stuffing is
