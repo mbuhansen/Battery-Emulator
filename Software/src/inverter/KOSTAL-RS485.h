@@ -53,18 +53,23 @@ uint8_t BATTERY_INFO[40] = {
     // when the frame is sent, so all real 0x00 bytes must be kept as 0x00 here.
     0x33, 0x33, 0xAF, 0x43,       // Max Voltage (overwritten in update_values)
     0x00, 0x00, 0xD8, 0x56,       // Manufacture date (Epoch time) (BYD: GetBatteryInfo this[0x10ac])
-    0xF5, 0x42, 0x45, 0x06,       // Battery Serial number? Modbus register 527 - 0x10b0
-    0x00, 0x00, 0xC8, 0x41,       // Nominal Capacity (0x10b4)
-    0x1A, 0x03,                   // Battery Firmware, modbus register 586  (0x10b8)
+    0xF5, 0x42, 0x45, 0x06,       // Battery Serial number, confirmed: read back as BMS Serial Number
+    0x00, 0x00, 0xC8, 0x41,       // Nominal Capacity, Ah (float32) (0x10b4)
+                                  //   Inverter reports Nameplate Energy = this * info Max Voltage
+    0x1A, 0x03,                   // Battery Firmware (uint16), confirmed: read back as 0x031A
     0x01,                         // (BYD: GetBatteryInfo this[0x10ba])
     0x00,                         // ?
     0x59, 0x42,                   // Vendor identifier
                                   //       0x59 0x42 -> 'YB' -> BYD
                                   //       0x59 0x44 -> 'YD' -> Dyness
     0x00, 0x00,                   // (BYD: GetBatteryInfo this[0x10be])
-    0x02, 0x00,
+    0x02, 0x00,                   // Battery Model ID (uint16), confirmed: read back as 2
     0x03, 0x00,                   // Number of blocks in series (uint16)
-    0xA0, 0xFF, 0xFF, 0xFF,
+    // PROBE: one of bytes 35-37 is State of Health in % (log sends 0xFF -> reads back 255%,
+    // the old frame sent 0x00 -> read back 0%). Distinct values so the readback identifies
+    // which byte it is: 35 -> 100%, 36 -> 80%, 37 -> 60%. Kept non-zero so COBS stuffing is
+    // unaffected. Replace with the dynamic SoH once identified, see KOSTAL-RS485-NOTES.md.
+    0xA0, 0x64, 0x50, 0x3C,
     0x89, // CRC
     0x00};
   // clang-format on
