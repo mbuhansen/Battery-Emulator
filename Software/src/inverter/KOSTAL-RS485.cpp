@@ -1,4 +1,5 @@
 #include "KOSTAL-RS485.h"
+#include <algorithm>
 #include "../battery/BATTERIES.h"
 #include "../datalayer/datalayer.h"
 #include "../devboard/hal/hal.h"
@@ -141,6 +142,10 @@ void KostalInverterProtocol::update_values() {
     float2frame(BATTERY_INFO, capacity_Ah, 18);
     float2frame(CYCLIC_DATA, capacity_Ah, 30);
   }
+
+  // State of health, uint8 percent. Confirmed by probing bytes 35-37 with 100/80/60: the
+  // inverter read back 100, so byte 35 carries it and 36-37 are something else.
+  BATTERY_INFO[35] = (uint8_t)std::min(datalayer.battery.status.soh_pptt / 100, 100);
 
   //Only perform this operation when Shunt is in used and set to BMW SBOX
   if (user_selected_shunt_type == ShuntType::BmwSbox) {

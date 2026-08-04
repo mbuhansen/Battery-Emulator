@@ -73,11 +73,11 @@ uint8_t BATTERY_INFO[40] = {
     0x07, 0x00,                   // Number of blocks in series (uint16)
                                   //   7 = the module count of an HVM 19.3, matching the
                                   //   model id above. The reference HVS 7.7 log sent 3.
-    // PROBE: one of bytes 35-37 is State of Health in % (log sends 0xFF -> reads back 255%,
-    // the old frame sent 0x00 -> read back 0%). Distinct values so the readback identifies
-    // which byte it is: 35 -> 100%, 36 -> 80%, 37 -> 60%. Kept non-zero so COBS stuffing is
-    // unaffected. Replace with the dynamic SoH once identified, see KOSTAL-RS485-NOTES.md.
-    0xA0, 0x64, 0x50, 0x3C,
+    0xA0,                         // ?
+    0x64,                         // State of Health, % (uint8), confirmed by probing 35-37
+                                  //   with 100/80/60: the inverter read back 100.
+                                  //   Overwritten in update_values()
+    0x50, 0x3C,                   // ?
     0x89, // CRC
     0x00};
   // clang-format on

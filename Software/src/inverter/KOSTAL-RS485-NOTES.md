@@ -19,24 +19,35 @@ Done and verified on hardware:
 - The frame arrays hold unstuffed bytes again, so every field decodes correctly.
 - Capacity is derived from the pack: `reported_total_capacity_Wh / max_design_voltage`,
   written to both frames. Reads back as 167 Ah, matching 66100 / 395.
-- Confirmed field mapping for serial number, firmware, model id and the two capacities.
+- Confirmed field mapping for serial number, firmware, model id, State of Health and the two
+  capacities.
 - The model id only picks which battery the inverter names. It does **not** limit voltage
   or current. Set to **9** (HVM 19.3, 280-403 V, 50 A) so the name the inverter shows is the
   label entry closest to the emulated pack; the reference log's own value was 2.
 
+Verified after an inverter restart on 2026-08-04, with the info frame re-read:
+
+| Reading | Value |
+| --- | --- |
+| Battery Model ID | 9 |
+| Battery Gross Capacity | 167 Ah |
+| Battery Work Capacity | 66120 Wh |
+| Battery State of Health | 100 % |
+| BMS Serial Number | 105202421 |
+| Battery Firmware | 3.26 |
+| Battery Type | BYD |
+| Max charge / discharge power setpoint | 11225 W |
+
+Work capacity 66120 Wh against the 66100 Wh the pack reports, the 20 Wh being the rounding
+of 167 Ah. **State of health resolved the probe**: bytes 35-37 held 100 / 80 / 60 and the
+inverter showed 100, so **byte 35 is SoH** and it is now fed from `soh_pptt`.
+
 Open:
 
-1. **State of health reads 255 %.** A probe is in the frame: info bytes 35-37 are set to
-   100 / 80 / 60 so the readback identifies which byte carries it. Once known, feed it from
-   `datalayer.battery.status.soh_pptt / 100`. If none of the three shows up, SoH is not in
-   those bytes and the remaining candidates are info bytes 24, 25 and 28-29 - `CYCLIC_DATA`
-   has never changed, so the field has to come from the info frame.
-2. **Work / nameplate energy** should follow to about 66100 Wh once the inverter re-reads
-   the info frame. Pending at the time of writing.
-3. **Blocks in series** (info bytes 32-33) is still the BYD value 3. Decide what it should
-   mean for a non-BYD pack, if anything.
-4. Serial number and firmware are still the BYD log values. Both are read back by the
+1. Serial number and firmware are still the BYD log values. Both are read back by the
    inverter, so they could be derived from something real.
+2. Info bytes 36-37 (`0x50 0x3C` left over from the probe) and byte 34 (`0xA0`) are still
+   unidentified. Nothing observed reacts to them.
 
 ### How to test a change
 
@@ -97,7 +108,8 @@ why only these are affected. Observed on four independent fields:
 | 30-31 | Model ID, uint16 = 9 (HVM 19.3) | **confirmed** -> "Battery Model ID" |
 | 32-33 | Blocks in series, uint16 = 7 | static, matches the model id |
 | 34 | `0xA0`, unknown | static |
-| 35-37 | `FF FF FF`, one of these is State of Health in % | **probe in progress** |
+| 35 | State of Health, % uint8 | **confirmed** -> "Battery State of Health" |
+| 36-37 | Unknown | static |
 | 38 | CRC | recomputed on send |
 | 39 | Frame terminator `0x00` | - |
 
@@ -178,9 +190,8 @@ the emulator.
 
 ## TODO - make the values match the connected pack
 
-1. **State of health.** Find which of bytes 35-37 is SoH, then feed it from
-   `datalayer.battery.status.soh_pptt / 100`. Currently sends `0xFF` -> reads back 255 %.
-   Probe: bytes 35/36/37 set to 100/80/60, whichever number appears identifies the byte.
+1. ~~**State of health.** Find which of bytes 35-37 is SoH.~~ Done: byte 35, now fed from
+   `datalayer.battery.status.soh_pptt / 100`, clamped to 100.
 2. ~~**Nominal capacity** (info 18-21) from the actual pack instead of 25.0 Ah.~~ Done.
 3. ~~**Gross capacity** (cyclic 30-33) from the actual pack, equal to the info value.~~ Done.
 4. ~~**Blocks in series** (info 32-33) - decide what this should reflect for a non-BYD pack.~~
@@ -212,10 +223,8 @@ capacity would mean dividing by SoH, i.e. guessing at a number the datalayer doe
 and it would make the inverter's nameplate energy a from-the-factory figure rather than the
 real one.
 
-Evidence so far says the inverter takes SoH from info bytes 35-37 rather than from the
-ratio of these two fields: the two observed readings were 0 % and 255 %, while the ratio at
-those times was 800 % and 100 %. If the SoH probe contradicts that, divide the info field
-by `soh_pptt` instead of sending the same value twice.
+The inverter takes SoH from info byte 35, not from the ratio of these two fields - now
+confirmed, so sending the same capacity in both frames costs nothing.
 
 ### Why the capacity is referenced to the max voltage
 
