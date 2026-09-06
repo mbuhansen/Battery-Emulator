@@ -69,7 +69,8 @@ jobs:
         python-version: '3.13'
 
     - name: Install PlatformIO Core
-      run: pip install --upgrade platformio
+      #run: pip install --upgrade platformio
+      run: pip install --upgrade "platformio==6.1.19" # fix for No module named 'SCons.Tool.FortranCommon'
 
     - name: Build image for ${{ matrix.board_name }}
       run: pio run -e ${{ matrix.pio_env }} -t checkprogsize 2>&1 | tee checkprogsize.txt
