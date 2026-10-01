@@ -903,10 +903,13 @@ void ControllerCan::update_node_aggregation() {
   datalayer.battery.status.real_soc = reported_real_soc;
   datalayer.battery.status.temperature_max_dC = highest_temp;
   datalayer.battery.status.temperature_min_dC = lowest_temp;
-  // Average SOH of the nodes that actually reported one. If none did, keep the previous value
-  // (datalayer default 99%) rather than reporting a made-up figure.
+  // Average SOH of the nodes that actually reported one, rounded to whole percent before it enters
+  // the datalayer: every consumer (inverters, web UI, MQTT) reads this field, and the inverter
+  // protocols only carry whole percent anyway, so three nodes must not surface as e.g. 83.33%.
+  // If no node reported an SOH, keep the previous value (datalayer default 99%).
   if (soh_node_count > 0) {
-    datalayer.battery.status.soh_pptt = (uint16_t)(soh_pptt_sum / soh_node_count);
+    uint32_t soh_avg_pptt = soh_pptt_sum / soh_node_count;
+    datalayer.battery.status.soh_pptt = (uint16_t)(((soh_avg_pptt + 50u) / 100u) * 100u);
   }
   if (max_cell_voltage_mV > 0) {
     datalayer.battery.status.cell_max_voltage_mV = max_cell_voltage_mV;
