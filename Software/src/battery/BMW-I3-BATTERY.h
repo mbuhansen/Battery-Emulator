@@ -17,9 +17,6 @@ class BmwI3Battery : public CanBattery {
     contactor_closing_allowed = contactor_closing_allowed_ptr;
     allows_contactor_closing = nullptr;
     wakeup_pin = wakeup;
-
-    //Init voltage to 0 to allow contactor check to operate without fear of default values colliding
-    battery_volts = 0;
   }
 
   // Use the default constructor to create the first or single battery.
@@ -117,14 +114,14 @@ class BmwI3Battery : public CanBattery {
 
   const int MAX_CELL_VOLTAGE_60AH = 4110;   // Battery is put into emergency stop if one cell goes over this value
   const int MIN_CELL_VOLTAGE_60AH = 2700;   // Battery is put into emergency stop if one cell goes below this value
-  const int MAX_CELL_VOLTAGE_94AH = 4140;   // Battery is put into emergency stop if one cell goes over this value
+  const int MAX_CELL_VOLTAGE_94AH = 4150;   // Battery is put into emergency stop if one cell goes over this value
   const int MIN_CELL_VOLTAGE_94AH = 2700;   // Battery is put into emergency stop if one cell goes below this value
   const int MAX_CELL_VOLTAGE_120AH = 4210;  // Battery is put into emergency stop if one cell goes over this value
   const int MIN_CELL_VOLTAGE_120AH = 2790;  // Battery is put into emergency stop if one cell goes below this value
   const int MAX_CELL_DEVIATION_MV = 250;    // LED turns yellow on the board if mv delta exceeds this value
   const int MAX_PACK_VOLTAGE_60AH = 3950;   // Charge stops if pack voltage exceeds this value
   const int MIN_PACK_VOLTAGE_60AH = 2590;   // Discharge stops if pack voltage exceeds this value
-  const int MAX_PACK_VOLTAGE_94AH = 3980;   // Charge stops if pack voltage exceeds this value
+  const int MAX_PACK_VOLTAGE_94AH = 3985;   // Charge stops if pack voltage exceeds this value
   const int MIN_PACK_VOLTAGE_94AH = 2590;   // Discharge stops if pack voltage exceeds this value
   const int MAX_PACK_VOLTAGE_120AH = 4032;  // Charge stops if pack voltage exceeds this value
   const int MIN_PACK_VOLTAGE_120AH = 2680;  // Discharge stops if pack voltage exceeds this value
@@ -140,12 +137,14 @@ class BmwI3Battery : public CanBattery {
 
   gpio_num_t wakeup_pin;
 
-  unsigned long previousMillis20 = 0;     // will store last time a 20ms CAN Message was send
-  unsigned long previousMillis100 = 0;    // will store last time a 100ms CAN Message was send
-  unsigned long previousMillis200 = 0;    // will store last time a 200ms CAN Message was send
-  unsigned long previousMillis500 = 0;    // will store last time a 500ms CAN Message was send
-  unsigned long previousMillis640 = 0;    // will store last time a 600ms CAN Message was send
-  unsigned long previousMillis1000 = 0;   // will store last time a 1000ms CAN Message was send
+  unsigned long previousMillis20 = 0;         // will store last time a 20ms CAN Message was send
+  unsigned long previousMillis100 = 0;        // will store last time a 100ms CAN Message was send
+  unsigned long previousMillis200 = 0;        // will store last time a 200ms CAN Message was send
+  unsigned long previousMillis500 = 0;        // will store last time a 500ms CAN Message was send
+  unsigned long previousMillis640 = 0;        // will store last time a 600ms CAN Message was send
+  unsigned long previousMillis1000 = 0;       // will store last time a 1000ms CAN Message was send
+  unsigned long previousMillis1000Part2 = 0;  // will store last time a 1000ms CAN Message was send
+
   unsigned long previousMillis5000 = 0;   // will store last time a 5000ms CAN Message was send
   unsigned long previousMillis10000 = 0;  // will store last time a 10000ms CAN Message was send
 
@@ -156,7 +155,16 @@ class BmwI3Battery : public CanBattery {
   enum BatterySize { BATTERY_60AH, BATTERY_94AH, BATTERY_120AH };
   BatterySize detectedBattery = BATTERY_60AH;
 
-  enum CmdState { SOH, CELL_VOLTAGE_MINMAX, SOC, CELL_VOLTAGE_CELLNO, CELL_VOLTAGE_CELLNO_LAST, CLEAR_DTC, OFF };
+  enum CmdState {
+    SOH,
+    CELL_VOLTAGE_MINMAX,
+    CELL_VOLTAGE_MINMAX2,
+    SOC,
+    CELL_VOLTAGE_CELLNO,
+    CELL_VOLTAGE_CELLNO_LAST,
+    CLEAR_DTC,
+    OFF
+  };
 
   CmdState cmdState = SOC;
 
@@ -424,7 +432,7 @@ class BmwI3Battery : public CanBattery {
   uint32_t battery_BEV_available_power_longterm_discharge = 0;
   uint16_t battery_energy_content_maximum_Wh = 0;
   uint16_t battery_display_SOC = 100;
-  uint16_t battery_volts = 3700;
+  uint16_t battery_volts = 0;
   uint16_t temp_voltage = 0;
   uint16_t battery_HVBatt_SOC = 0;
   uint16_t battery_DC_link_voltage = 0;

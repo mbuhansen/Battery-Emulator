@@ -27,6 +27,15 @@ void init_stored_settings();
  */
 void store_settings_equipment_stop();
 
+/**
+ * @brief Persist a WatchDogTimeout the inverter changed, if one is pending
+ *
+ * @param[in] void
+ *
+ * @return void
+ */
+void store_settings_inverter_watchdog();
+
 void erase_phy_cal_data();
 
 /**
@@ -118,6 +127,15 @@ class BatteryEmulatorSettingsStore {
       settings.putString(name, value);
       settingsUpdated = true;
     }
+  }
+
+  // Parses an IP string; returns 0.0.0.0 when missing/malformed (fromString leaves partial bytes on failure).
+  IPAddress getIP(const char* name) {
+    IPAddress ip;
+    if (!ip.fromString(getString(name).c_str())) {
+      ip = IPAddress();
+    }
+    return ip;
   }
 
   bool were_settings_updated() const { return settingsUpdated; }

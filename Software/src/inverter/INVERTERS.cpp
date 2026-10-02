@@ -1,11 +1,14 @@
 #include "INVERTERS.h"
+#ifndef SMALL_FLASH_DEVICE
 #include "../communication/can/BATTERY-NODE-CAN.h"
+#endif
 
 #include "AFORE-CAN.h"
 #include "BYD-CAN.h"
 #include "BYD-MODBUS.h"
 #include "FERROAMP-CAN.h"
 #include "FOXESS-CAN.h"
+#include "FOXESS-EP-CAN.h"
 #include "GROWATT-HV-CAN.h"
 #include "GROWATT-LV-CAN.h"
 #include "GROWATT-WIT-CAN.h"
@@ -60,6 +63,11 @@ uint16_t charge_taper_band_pptt =
 uint16_t charge_taper_floor_W =
     0;  //Minimum charge power in W held during tapering until 100.00% scaled SOC. 0 = disabled, taper goes linearly to 0W
 
+uint32_t inverter_modbus_watchdog_timeout_s = MODBUS_INV_WATCHDOG_DEFAULT_S;
+bool inverter_modbus_watchdog_changed = false;
+bool user_selected_accept_inverter_reboot = false;
+uint64_t inverter_modbus_utc_epoch_s = 0;
+
 std::vector<InverterProtocolType> supported_inverter_protocols() {
   std::vector<InverterProtocolType> types;
 
@@ -90,6 +98,9 @@ extern const char* name_for_inverter_type(InverterProtocolType type) {
     case InverterProtocolType::Foxess:
       return FoxessCanInverter::Name;
 
+    case InverterProtocolType::FoxessEp:
+      return FoxessEpCanInverter::Name;
+
     case InverterProtocolType::GrowattHv:
       return GrowattHvInverter::Name;
 
@@ -112,7 +123,11 @@ extern const char* name_for_inverter_type(InverterProtocolType type) {
       return PylonLV485InverterProtocol::Name;
 
     case InverterProtocolType::InterUnitNode:
+#ifndef SMALL_FLASH_DEVICE
       return "Inter-Unit Node";
+#else
+      return nullptr;  // Not available on SMALL_FLASH_DEVICE, hidden in Settings
+#endif
 
     case InverterProtocolType::Schneider:
       return SchneiderInverter::Name;
@@ -153,6 +168,16 @@ extern const char* name_for_inverter_type(InverterProtocolType type) {
   return nullptr;
 }
 
+// Must match the provides_shunt() overrides of the inverter classes.
+bool inverter_type_provides_shunt(InverterProtocolType type) {
+  switch (type) {
+    case InverterProtocolType::BydCan:
+      return true;
+    default:
+      return false;
+  }
+}
+
 bool setup_inverter() {
   if (inverter) {
     return true;
@@ -177,6 +202,10 @@ bool setup_inverter() {
 
     case InverterProtocolType::Foxess:
       inverter = new FoxessCanInverter();
+      break;
+
+    case InverterProtocolType::FoxessEp:
+      inverter = new FoxessEpCanInverter();
       break;
 
     case InverterProtocolType::GrowattHv:
@@ -207,9 +236,11 @@ bool setup_inverter() {
       inverter = new PylonLV485InverterProtocol();
       break;
 
+#ifndef SMALL_FLASH_DEVICE
     case InverterProtocolType::InterUnitNode:
       setup_battery_node_can();
       return true;  // Battery node has no inverter object, but node CAN is now running
+#endif
 
     case InverterProtocolType::Schneider:
       inverter = new SchneiderInverter();

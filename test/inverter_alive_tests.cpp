@@ -8,16 +8,19 @@
 
 // Tests for the inverter CAN aliveness handling in update_machineryprotection().
 //
-// NOTE on ordering: safety.cpp keeps a file-static inverter_detected latch with no
-// reset, so the detection test below must run before any other test in this suite
-// refreshes the counter to >= CAN_STILL_ALIVE. Google Test runs tests within a
-// suite in definition order (as long as shuffling is not enabled), so keep the
-// detection test first in this file.
+// The detection latch in safety.cpp has no reset of its own, so it used to have
+// to be the first test in the file and the suite could not be shuffled. The
+// fixture now clears it directly, the same way battery_alive_tests.cpp clears
+// the battery and charger latches, so these tests are order-independent.
+
+extern bool inverter_detected;
 
 namespace {
 
 void setup_can_inverter_test() {
   datalayer = DataLayer();
+  // Defined in safety.cpp; not exposed via safety.h like the battery latches are.
+  inverter_detected = false;
   reset_all_events();
   init_hal();
   // Avoid tripping the low-heap check (CPU_free_heap defaults to 0)
@@ -90,17 +93,26 @@ TEST(InverterAliveTests, MissingEventClearsOnRecoveryWithNormalTimeout) {
 
 // The long-timeout decrement runs at half rate (every 2nd call); make sure the
 // hoisted clear_event did not change that behavior.
-TEST(InverterAliveTests, LongTimeoutStillDecrementsAtHalfRate) {
+TEST(InverterAliveTests, LongTimeoutDecrementsOnEveryThirdPass) {
   setup_can_inverter_test();
   user_selected_inverter_long_CAN_timeout = true;
 
+  // The pass counter is a function-local static, so its phase carries over from
+  // whatever ran before. Tick until one decrement is observed: that leaves the
+  // phase at a known zero.
   datalayer.system.status.CAN_inverter_still_alive = CAN_STILL_ALIVE;
-  // 6 calls at half rate -> the counter must drop by at most 3
+  for (int guard = 0; datalayer.system.status.CAN_inverter_still_alive == CAN_STILL_ALIVE && guard < 4; guard++) {
+    update_machineryprotection();
+  }
+  ASSERT_EQ(datalayer.system.status.CAN_inverter_still_alive, CAN_STILL_ALIVE - 1) << "phase sync failed";
+
+  // From a known phase: six passes are exactly two full 3-tick periods.
+  datalayer.system.status.CAN_inverter_still_alive = CAN_STILL_ALIVE;
   for (int i = 0; i < 6; i++) {
     update_machineryprotection();
   }
-  EXPECT_GE(datalayer.system.status.CAN_inverter_still_alive, CAN_STILL_ALIVE - 3);
-  EXPECT_LT(datalayer.system.status.CAN_inverter_still_alive, CAN_STILL_ALIVE);
+  EXPECT_EQ(datalayer.system.status.CAN_inverter_still_alive, CAN_STILL_ALIVE - 2)
+      << "the long timeout decrements on every third pass - a 3x window, not the 2x the old comment claimed";
 
   user_selected_inverter_long_CAN_timeout = false;
 }

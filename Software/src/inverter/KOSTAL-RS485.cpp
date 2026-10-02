@@ -107,45 +107,44 @@ bool KostalInverterProtocol::check_kostal_frame_crc(int len) {
 void KostalInverterProtocol::update_values() {
 
   // Calculate average temperature (used in multiple places)
-  average_temperature_dC =
-      ((datalayer.battery.status.temperature_max_dC + datalayer.battery.status.temperature_min_dC) / 2);
-  if (datalayer.battery.status.temperature_min_dC < 0) {
+  average_temperature_dC = ((datalayer.aggregate.temperature_max_dC + datalayer.aggregate.temperature_min_dC) / 2);
+  if (datalayer.aggregate.temperature_min_dC < 0) {
     average_temperature_dC = 0;
   }
 
-  float2frame(CYCLIC_DATA, (float)datalayer.battery.status.voltage_dV / 10, 6);  // Confirmed OK mapping
+  float2frame(CYCLIC_DATA, (float)datalayer.aggregate.voltage_dV / 10, 6);  // Confirmed OK mapping
   float2frame(CYCLIC_DATA, (float)average_temperature_dC / 10, 14);
 
   // Max discharge and charge currents
-  float2frame(CYCLIC_DATA, (float)datalayer.battery.status.max_discharge_current_dA / 10, 26);
+  float2frame(CYCLIC_DATA, (float)datalayer.aggregate.max_discharge_current_dA / 10, 26);
 
   // When SoC is 100%, drop down allowed charge current.
-  if ((datalayer.battery.status.reported_soc / 100) < 100) {
-    float2frame(CYCLIC_DATA, (float)datalayer.battery.status.max_charge_current_dA / 10, 34);
+  if ((datalayer.aggregate.reported_soc / 100) < 100) {
+    float2frame(CYCLIC_DATA, (float)datalayer.aggregate.max_charge_current_dA / 10, 34);
   } else {
     float2frame(CYCLIC_DATA, 0.0, 34);
   }
 
-  float2frame(BATTERY_INFO, (float)datalayer.battery.info.max_design_voltage_dV / 10, 6);
+  float2frame(BATTERY_INFO, (float)datalayer.aggregate.max_design_voltage_dV / 10, 6);
 
   // Max voltage is always sent
-  float2frame(CYCLIC_DATA, (float)datalayer.battery.info.max_design_voltage_dV / 10, 10);
+  float2frame(CYCLIC_DATA, (float)datalayer.aggregate.max_design_voltage_dV / 10, 10);
 
   // Battery capacity in Ah, carried by both frames and read back as "Nameplate Charge
   // Capacity". The inverter derives its nameplate energy as this capacity times the voltage
   // in BATTERY_INFO bytes 6-9, so referencing the capacity to that same voltage makes the
   // reported energy equal the pack energy. Uses the reported capacity to stay consistent
   // with the SOC we send, which is the scaled one.
-  if (datalayer.battery.info.max_design_voltage_dV > 0) {
-    float capacity_Ah = (float)datalayer.battery.info.reported_total_capacity_Wh /
-                        ((float)datalayer.battery.info.max_design_voltage_dV / 10);
+  if (datalayer.aggregate.max_design_voltage_dV > 0) {
+    float capacity_Ah =
+        (float)datalayer.aggregate.reported_total_capacity_Wh / ((float)datalayer.aggregate.max_design_voltage_dV / 10);
     float2frame(BATTERY_INFO, capacity_Ah, 18);
     float2frame(CYCLIC_DATA, capacity_Ah, 30);
   }
 
   // State of health, uint8 percent. Confirmed by probing bytes 35-37 with 100/80/60: the
   // inverter read back 100, so byte 35 carries it and 36-37 are something else.
-  BATTERY_INFO[35] = (uint8_t)std::min(datalayer.battery.status.soh_pptt / 100, 100);
+  BATTERY_INFO[35] = (uint8_t)std::min(datalayer.aggregate.soh_pptt / 100, 100);
 
   //Only perform this operation when Shunt is in used and set to BMW SBOX
   if (user_selected_shunt_type == ShuntType::BmwSbox) {
@@ -160,9 +159,9 @@ void KostalInverterProtocol::update_values() {
 
     if (datalayer.shunt.precharging || datalayer.shunt.contactors_engaged) {
       CYCLIC_DATA[56] = 1;
-      float2frame(CYCLIC_DATA, (float)datalayer.battery.status.max_discharge_current_dA / 10,
+      float2frame(CYCLIC_DATA, (float)datalayer.aggregate.max_discharge_current_dA / 10,
                   26);  // Maximum discharge current
-      float2frame(CYCLIC_DATA, (float)datalayer.battery.status.max_charge_current_dA / 10,
+      float2frame(CYCLIC_DATA, (float)datalayer.aggregate.max_charge_current_dA / 10,
                   34);  // Maximum charge current
     } else {
       CYCLIC_DATA[56] = 0;
@@ -172,8 +171,8 @@ void KostalInverterProtocol::update_values() {
   } else {
     if (digitalRead(SECONDARY_CONTACTOR_PIN) == LOW && datalayer.system.status.inverter_allows_contactor_closing) {
       // Contactors closed - send actual current
-      float2frame(CYCLIC_DATA, (float)datalayer.battery.status.current_dA / 10, 18);  // Last current
-      float2frame(CYCLIC_DATA, (float)datalayer.battery.status.current_dA / 10, 22);  // Avg current(1s)
+      float2frame(CYCLIC_DATA, (float)datalayer.aggregate.current_dA / 10, 18);  // Last current
+      float2frame(CYCLIC_DATA, (float)datalayer.aggregate.current_dA / 10, 22);  // Avg current(1s)
       CYCLIC_DATA[56] = 1;
       CYCLIC_DATA[57] = 0x02;
       CYCLIC_DATA[59] = 0x01;
@@ -187,14 +186,14 @@ void KostalInverterProtocol::update_values() {
     }
   }
 
-  float2frame(CYCLIC_DATA, (float)datalayer.battery.status.temperature_max_dC / 10, 38);
-  float2frame(CYCLIC_DATA, (float)datalayer.battery.status.temperature_min_dC / 10, 42);
+  float2frame(CYCLIC_DATA, (float)datalayer.aggregate.temperature_max_dC / 10, 38);
+  float2frame(CYCLIC_DATA, (float)datalayer.aggregate.temperature_min_dC / 10, 42);
 
-  float2frame(CYCLIC_DATA, (float)datalayer.battery.status.cell_max_voltage_mV / 1000, 46);
-  float2frame(CYCLIC_DATA, (float)datalayer.battery.status.cell_min_voltage_mV / 1000, 50);
+  float2frame(CYCLIC_DATA, (float)datalayer.aggregate.cell_max_voltage_mV / 1000, 46);
+  float2frame(CYCLIC_DATA, (float)datalayer.aggregate.cell_min_voltage_mV / 1000, 50);
 
   // SOC handling: Add 3% for first 5 minutes after battery info is sent
-  uint16_t adjusted_soc = datalayer.battery.status.reported_soc / 100;
+  uint16_t adjusted_soc = datalayer.aggregate.reported_soc / 100;
   if (startupMillis != 0 && (millis() - startupMillis) < 300000) {  // First 5 minutes (300000 ms)
     adjusted_soc += 3;
     if (adjusted_soc > 100) {

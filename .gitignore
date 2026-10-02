@@ -26,8 +26,8 @@ test/tests[1]_include.cmake
 logs
 .dummy/
 managed_components/
-sdkconfig.defaults
-sdkconfig.lilygo_330
+sdkconfig.*
+!sdkconfig.be_size.defaults
 
 # Ignore upload command (removes the need to re-compile after Verify when running Download, in e.g. VS Code)
 upload.bat
@@ -43,7 +43,13 @@ compile.bat
 USER_SECRETS.h
 
 # Ignore generated ESP-IDF component manifest
-Software/idf_component.yml
+idf_component.yml
+
+# Ignore generated version header (produced by tools/identify_build.py)
+Software/src/devboard/utils/version_autogen.h
+
+# Ignore the embedded help texts (produced by tools/embed_help_json.py)
+Software/src/devboard/webserver/help_json_autogen.h
 
 # Ignore auto-generated root files from ESP-IDF tooling
 /CMakeLists.txt

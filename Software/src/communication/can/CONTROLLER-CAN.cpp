@@ -9,6 +9,8 @@
 #include "../../devboard/utils/logging.h"
 #include "comm_can.h"
 
+#ifndef SMALL_FLASH_DEVICE
+
 ControllerCan controller_can;
 
 // Voltage threshold for contactor safety (same as check_interconnect_available)
@@ -167,9 +169,9 @@ void ControllerCan::receive_can_frame(CAN_frame* rx_frame) {
     {
       node.max_charge_W = ((uint16_t)rx_frame->data.u8[0] << 8) | rx_frame->data.u8[1];
       node.max_discharge_W = ((uint16_t)rx_frame->data.u8[2] << 8) | rx_frame->data.u8[3];
-      // [4..5] rem_word: bit15 = offline-balancing flag, bits0..14 = remaining_Wh in 2 Wh steps
+      // [4..5] rem_word: bit15 = offline-balancing flag, bits0..14 = remaining_Wh in 10 Wh steps
       uint16_t rem_word = ((uint16_t)rx_frame->data.u8[4] << 8) | rx_frame->data.u8[5];
-      node.remaining_Wh = (uint16_t)((rem_word & IU_NODE_REM_VALUE_MASK) * IU_REM_WH_WIRE_SCALE);
+      node.remaining_Wh = (uint32_t)(rem_word & IU_NODE_REM_VALUE_MASK) * IU_REM_WH_WIRE_SCALE;
       node.temp_min_dC = (int8_t)rx_frame->data.u8[6];
       bool was_balancing = node.balancing;
       node.balancing = (rem_word & IU_NODE_REM_BALANCING_BIT) != 0;
@@ -184,7 +186,9 @@ void ControllerCan::receive_can_frame(CAN_frame* rx_frame) {
     }
     case 0x02:  // INFO message (every 10s)
     {
-      node.total_capacity_Wh = ((uint16_t)rx_frame->data.u8[0] << 8) | rx_frame->data.u8[1];
+      // [0..1] total capacity in 10 Wh steps
+      node.total_capacity_Wh =
+          (uint32_t)(((uint16_t)rx_frame->data.u8[0] << 8) | rx_frame->data.u8[1]) * IU_CAP_WH_WIRE_SCALE;
       node.max_design_voltage_dV = ((uint16_t)rx_frame->data.u8[2] << 8) | rx_frame->data.u8[3];
       node.min_design_voltage_dV = ((uint16_t)rx_frame->data.u8[4] << 8) | rx_frame->data.u8[5];
       // soh travels in 0.5% steps in a single byte; rescale to internal 0.01% units
@@ -209,11 +213,14 @@ void ControllerCan::receive_can_frame(CAN_frame* rx_frame) {
     }
     case 0x05:  // IDENT message (startup only)
     {
-      // Validate before accepting: a genuine IDENT is exactly 8 bytes with reserved [4..6] == 0
-      // ([7] is the CRC, already verified above). Rejecting malformed frames stops a single
-      // garbled IDENT (CAN glitch, or a mis-framed non-IDENT frame landing on a 0x_5 ID) from
-      // overwriting a known-good fw_version_num and raising a false EVENT_BATTERY_NODE_IDENT_MISMATCH.
-      if (rx_frame->DLC == 8 && (rx_frame->data.u8[4] | rx_frame->data.u8[5] | rx_frame->data.u8[6]) == 0) {
+      // Validate before accepting: a genuine IDENT is exactly 8 bytes, carries our protocol version in
+      // [4] and has reserved [5..6] == 0 ([7] is the CRC, already verified above). Rejecting malformed
+      // frames stops a single garbled IDENT (CAN glitch, or a mis-framed non-IDENT frame landing on a
+      // 0x_5 ID) from overwriting a known-good fw_version_num and raising a false
+      // EVENT_BATTERY_NODE_IDENT_MISMATCH. The version check keeps a node on another wire layout
+      // (e.g. v2 capacity scaling) unverified, so its contactor is never allowed.
+      if (rx_frame->DLC == 8 && rx_frame->data.u8[4] == IU_PROTOCOL_VERSION &&
+          (rx_frame->data.u8[5] | rx_frame->data.u8[6]) == 0) {
         node.fw_version_num = ((uint16_t)rx_frame->data.u8[0] << 8) | rx_frame->data.u8[1];
         node.battery_type_id = ((uint16_t)rx_frame->data.u8[2] << 8) | rx_frame->data.u8[3];
         node.ident_received = true;
@@ -732,7 +739,7 @@ void ControllerCan::update_node_aggregation() {
   uint16_t shared_voltage_dV = 0;                 // All nodes share voltage (parallel)
   uint16_t lowest_max_design_voltage_dV = 65535;  // To safely limit inverter charge voltage
   uint16_t highest_min_design_voltage_dV = 0;     // To safely limit inverter discharge voltage
-  uint32_t soh_pptt_sum = 0;                      // Report the average SOH across all reporting nodes
+  uint32_t soh_pptt_sum = 0;                      // Average SOH across nodes that report one
   uint8_t soh_node_count = 0;
   uint16_t max_cell_voltage_mV = 0;
   uint16_t min_cell_voltage_mV = 65535;
@@ -927,3 +934,5 @@ void ControllerCan::update_node_aggregation() {
   // Signal inverter that system allows contactor
   datalayer.system.status.battery_allows_contactor_closing = true;
 }
+
+#endif  // SMALL_FLASH_DEVICE

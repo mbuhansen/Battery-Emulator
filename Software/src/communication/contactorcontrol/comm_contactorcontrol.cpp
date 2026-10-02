@@ -1,4 +1,5 @@
 #include "comm_contactorcontrol.h"
+#include "../../battery/BATTERIES.h"
 #include "../../devboard/hal/hal.h"
 #include "../../devboard/safety/safety.h"
 #include "../../devboard/utils/led_handler.h"
@@ -34,24 +35,42 @@ const uint8_t OFF = 0;
   500  // Time after negative contactor is turned on, to start precharge (not actual precharge time!)
 #define PRECHARGE_COMPLETED_TIME_MS \
   1000  // After successful precharge, resistor is turned off after this delay (and contactors are economized if PWM enabled)
+#define ESTOP_OPEN_TIMEOUT_MS \
+  7000  // Equipment stop: max time to wait for the pause to reach zero current before opening contactors anyway
 uint16_t pwm_frequency = 20000;
 uint16_t pwm_hold_duty = 250;
+uint32_t bms_power_on_ms = 0;
 #define PWM_ON_DUTY 1023
 #define PWM_RESOLUTION 10
 #define PWM_OFF_DUTY 0  //No need to have this userconfigurable
 #define PWM_Positive_Channel 0
 #define PWM_Negative_Channel 1
-static unsigned long prechargeStartTime = 0;
-unsigned long negativeStartTime = 0;
-unsigned long prechargeCompletedTime = 0;
-unsigned long timeSpentInFaultedMode = 0;
-unsigned long currentTime = 0;
-unsigned long lastPowerRemovalTime = 0;
+#define PWM_Battery2_Channel 2
+#define PWM_Battery3_Channel 3
+#define EXTRA_CONTACTOR_PULL_IN_TIME_MS \
+  PRECHARGE_COMPLETED_TIME_MS  // Battery 2/3 coils are held at full duty for this long before being economized
+static uint32_t prechargeStartTime = 0;
+uint32_t negativeStartTime = 0;
+uint32_t prechargeCompletedTime = 0;
+uint32_t timeSpentInFaultedMode = 0;
+uint32_t currentTime = 0;
+uint32_t lastPowerRemovalTime = 0;
+static uint32_t estop_open_wait_start_ms = 0;
 bool periodicResetDeferred = false;   //True while a due periodic reset is waiting for SOC to recover
 bool balancingPeriodSkipped = false;  //True once balancing has cost the reset a period
-unsigned long bmsPowerOnTime = 0;
-const unsigned long bmsWarmupDuration = 3000;
+uint32_t bmsPowerOnTime = 0;
+const uint32_t bmsWarmupDuration = 3000;
 #define BMS_RESET_DEFER_SOC_PPTT 1500  // 15.00%, below this the low-SOC guard defers the periodic reset
+
+/* The safety layer decrements CAN_battery_still_alive once per second and latches
+   EVENT_CAN_BATTERY_MISSING when it reaches zero, so the BMS may only be silent for
+   CAN_STILL_ALIVE seconds. A reset that keeps the BMS powered off for longer than that
+   would always trip the event, so for those durations we refresh the liveness counters
+   ourselves while the reset runs. Refreshing one second before the window closes keeps
+   the counter from ever reaching zero. Durations that fit inside the window are left
+   alone and keep the original, unmasked behaviour. */
+#define BMS_RESET_CAN_KEEPALIVE_INTERVAL_MS ((unsigned long)(CAN_STILL_ALIVE - 1) * 1000UL)
+unsigned long lastCanKeepaliveTime = 0;
 
 void set(uint8_t pin, bool direction, uint32_t pwm_freq = 0xFFFF) {
 
@@ -121,8 +140,13 @@ bool init_contactors() {
       return false;
     }
 
-    pinMode(second_contactors, OUTPUT);
-    set(second_contactors, OFF);
+    if (pwm_contactor_control) {
+      ledcAttachChannel(second_contactors, pwm_frequency, PWM_RESOLUTION, PWM_Battery2_Channel);
+      ledcWrite(second_contactors, PWM_OFF_DUTY);
+    } else {
+      pinMode(second_contactors, OUTPUT);
+      set(second_contactors, OFF);
+    }
   }
 
   if (contactor_control_enabled_triple_battery) {
@@ -132,8 +156,13 @@ bool init_contactors() {
       return false;
     }
 
-    pinMode(triple_contactors, OUTPUT);
-    set(triple_contactors, OFF);
+    if (pwm_contactor_control) {
+      ledcAttachChannel(triple_contactors, pwm_frequency, PWM_RESOLUTION, PWM_Battery3_Channel);
+      ledcWrite(triple_contactors, PWM_OFF_DUTY);
+    } else {
+      pinMode(triple_contactors, OUTPUT);
+      set(triple_contactors, OFF);
+    }
   }
 
   // Init BMS contactor
@@ -145,6 +174,7 @@ bool init_contactors() {
     }
     pinMode(pin, OUTPUT);
     digitalWrite(pin, HIGH);
+    bms_power_on_ms = millis();
     set_indicator_led(IndicatorLed::BMS_POWER, true);
   }
 
@@ -193,8 +223,10 @@ void handle_contactors() {
       timeSpentInFaultedMode = 0;
     }
 
-    //handle contactor control SHUTDOWN_REQUESTED
-    if (timeSpentInFaultedMode > MAX_ALLOWED_FAULT_TICKS) {
+    //handle contactor control SHUTDOWN_REQUESTED. Logged on entry only: the fault counter keeps
+    //counting while latched, so this condition stays true on every following pass
+    if ((timeSpentInFaultedMode > MAX_ALLOWED_FAULT_TICKS) && (contactorStatus != SHUTDOWN_REQUESTED)) {
+      dbg_contactors("OPEN (fault, latched)");
       contactorStatus = SHUTDOWN_REQUESTED;
     }
 
@@ -225,11 +257,37 @@ void handle_contactors() {
       }
     }
 
-    // In case the inverter requests contactors to open, set the state accordingly
+    // In case the inverter or the equipment stop requests contactors to open, jump to Disconnected (recoverable)
     if (contactorStatus == COMPLETED) {
-      //Incase inverter (or estop) requests contactors to open, make state machine jump to Disconnected state (recoverable)
-      if (!datalayer.system.status.inverter_allows_contactor_closing || datalayer.system.info.equipment_stop_active) {
+      if (!datalayer.system.status.inverter_allows_contactor_closing) {
+        // Inverter-commanded opening stays immediate: the inverter has already
+        // stopped power transfer before revoking its permission
+        dbg_contactors("OPEN (inverter request)");
         contactorStatus = DISCONNECTED;
+      } else if (datalayer.system.info.equipment_stop_active) {
+        // Equipment stop: every e-stop entry point also issues a battery pause,
+        // so hold the contactors until the pause state machine reports PAUSED
+        // (current below 1.8 A) - opening under load risks arcing/welding.
+        // Bounded: after ESTOP_OPEN_TIMEOUT_MS we open anyway and raise an
+        // event, mirroring the BMS-reset give-up behavior.
+        uint32_t now = millis();
+        if (estop_open_wait_start_ms == 0) {
+          estop_open_wait_start_ms = now;
+        }
+        bool paused = (emulator_pause_status == PAUSED);
+        bool timed_out = (now - estop_open_wait_start_ms) > ESTOP_OPEN_TIMEOUT_MS;
+        if (paused || timed_out) {
+          if (timed_out) {
+            LOG_SET_NEXT_SEVERITY(4);  // warning
+            logging.printf("Contactors: Equipment stop wait timed out, opening under load\n");
+            set_event(EVENT_ERROR_OPEN_CONTACTOR, 1);
+          }
+          estop_open_wait_start_ms = 0;
+          dbg_contactors("OPEN (equipment stop)");
+          contactorStatus = DISCONNECTED;
+        }
+      } else {
+        estop_open_wait_start_ms = 0;
       }
       // Skip running the state machine below if it has already completed
       return;
@@ -293,28 +351,53 @@ void handle_contactors() {
   }
 }
 
-void handle_contactors_battery2() {
-  auto second_contactors = esp32hal->SECOND_BATTERY_CONTACTORS_PIN();
-
-  if ((contactorStatus == COMPLETED) && datalayer.system.status.battery2_allowed_contactor_closing) {
-    set(second_contactors, ON);
-    datalayer.system.status.contactors_battery2_engaged = true;
-  } else {  // Closing contactors on secondary battery not allowed
-    set(second_contactors, OFF);
-    datalayer.system.status.contactors_battery2_engaged = false;
+/* Battery 2 and 3 each have a single contactor and no precharge stage of their own, they simply
+   close once the main ladder reaches COMPLETED. Every set() here passes an explicit duty so the
+   PWM path is taken when the user enabled economizing: full duty to pull the coil in, hold duty
+   once it has closed, and 0% to release it. Without PWM the duty argument is ignored and set()
+   falls back to digitalWrite exactly as before, so one call site serves both modes.
+   Note that millis() is read here rather than reusing the file-scope currentTime: these handlers
+   run before handle_contactors() refreshes it, and it is not refreshed at all on the COMPLETED
+   pass, which is precisely when these contactors are closed.
+   Both edges are logged next to the main ladder's steps, so the log shows when each extra
+   battery actually joined the DC link and when it left it again, not just what the main one did. */
+static void handle_extra_contactor(gpio_num_t pin, bool close_allowed, bool& engaged, uint32_t& pull_in_start,
+                                   const char* join_log, const char* leave_log) {
+  if (close_allowed) {
+    if (!engaged) {  // Rising edge, start the pull-in window
+      pull_in_start = millis();
+      engaged = true;
+      dbg_contactors(join_log);
+    }
+    // Economize only after the coil has had the same pull-in time the main pair gets between
+    // closing and PRECHARGE_OFF. Dropping to hold duty any earlier risks the contactor not seating.
+    bool economize = pwm_contactor_control && ((millis() - pull_in_start) >= EXTRA_CONTACTOR_PULL_IN_TIME_MS);
+    set(pin, ON, economize ? pwm_hold_duty : PWM_ON_DUTY);
+  } else {  // Closing contactors on this battery not allowed
+    set(pin, OFF, PWM_OFF_DUTY);
+    if (engaged) {  // Falling edge. Only once, not on every pass while it stays open
+      dbg_contactors(leave_log);
+    }
+    engaged = false;
   }
 }
 
-void handle_contactors_battery3() {
-  auto third_contactors = esp32hal->TRIPLE_BATTERY_CONTACTORS_PIN();
+void handle_contactors_battery2() {
+  static uint32_t pull_in_start = 0;
 
-  if ((contactorStatus == COMPLETED) && datalayer.system.status.battery3_allowed_contactor_closing) {
-    set(third_contactors, ON);
-    datalayer.system.status.contactors_battery3_engaged = true;
-  } else {  // Closing contactors on secondary battery not allowed
-    set(third_contactors, OFF);
-    datalayer.system.status.contactors_battery3_engaged = false;
-  }
+  handle_extra_contactor(esp32hal->SECOND_BATTERY_CONTACTORS_PIN(),
+                         (contactorStatus == COMPLETED) && datalayer.system.status.battery2_allowed_contactor_closing,
+                         datalayer.system.status.contactors_battery2_engaged, pull_in_start, "JOIN Battery 2",
+                         "LEAVE Battery 2");
+}
+
+void handle_contactors_battery3() {
+  static uint32_t pull_in_start = 0;
+
+  handle_extra_contactor(esp32hal->TRIPLE_BATTERY_CONTACTORS_PIN(),
+                         (contactorStatus == COMPLETED) && datalayer.system.status.battery3_allowed_contactor_closing,
+                         datalayer.system.status.contactors_battery3_engaged, pull_in_start, "JOIN Battery 3",
+                         "LEAVE Battery 3");
 }
 
 /* PERIODIC_BMS_RESET - Once every configured interval (24h or 48h) we remove power from the BMS_power pin for 30 seconds.
@@ -332,17 +415,18 @@ void bms_power_off() {
 
 void bms_power_on() {
   digitalWrite(esp32hal->BMS_POWER(), HIGH);
+  bms_power_on_ms = millis();
   set_indicator_led(IndicatorLed::BMS_POWER, true);
 }
 
 // Configured period between two automatic resets. Guarded to 24h in case the stored
 // value is missing or nonsensical, see load_settings().
-static unsigned long bms_reset_interval_ms() {
+static uint32_t bms_reset_interval_ms() {
   uint32_t hours = periodic_bms_reset_interval_h;
   if (hours == 0) {
     hours = 24;
   }
-  return (unsigned long)hours * 60UL * 60UL * 1000UL;
+  return (uint32_t)hours * 60UL * 60UL * 1000UL;
 }
 
 /* The two guards behave differently on purpose, so the decision is three-way rather than
@@ -366,7 +450,7 @@ static PeriodicResetVerdict periodic_bms_reset_verdict(const char** reason) {
       *reason = "real SOC below 15 percent";
       return PeriodicResetVerdict::Defer;
     }
-    if (datalayer.battery.status.reported_soc < BMS_RESET_DEFER_SOC_PPTT) {
+    if (datalayer.aggregate.reported_soc < BMS_RESET_DEFER_SOC_PPTT) {
       *reason = "scaled SOC below 15 percent";
       return PeriodicResetVerdict::Defer;
     }
@@ -392,6 +476,39 @@ static PeriodicResetVerdict periodic_bms_reset_verdict(const char** reason) {
   }
 
   return PeriodicResetVerdict::Run;
+}
+
+/* True when the configured off time outlasts the CAN liveness window and the reset therefore
+   needs the counters held up. Only the off time matters here: the surrounding pause and warmup
+   phases are short and the BMS is on the bus for part of them. To test the statement in Leaf 
+   "GEN4_e_Battery_control_spec_ver1.0.pdf" page 4, "IGN to be OFF for more than 6 min 30 seconds every day. "*/
+static bool bms_reset_needs_can_keepalive() {
+  return datalayer.battery_settings.user_set_bms_reset_duration_ms > BMS_RESET_CAN_KEEPALIVE_INTERVAL_MS;
+}
+
+/* Pretends the batteries were just heard from, and restarts the keepalive interval.
+   Batteries that are not configured are skipped, since the safety layer does not look at
+   their counters either. */
+static void bms_reset_refresh_can_alive() {
+  lastCanKeepaliveTime = currentTime;
+  datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+  if (battery2) {
+    datalayer.battery2.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+  }
+  if (battery3) {
+    datalayer.battery3.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+  }
+}
+
+// Called on every pass through the powered-off and powering-on states of a long reset.
+static void bms_reset_can_keepalive_tick() {
+  if (!bms_reset_needs_can_keepalive()) {
+    return;
+  }
+  if (currentTime - lastCanKeepaliveTime < BMS_RESET_CAN_KEEPALIVE_INTERVAL_MS) {
+    return;
+  }
+  bms_reset_refresh_can_alive();
 }
 
 void handle_BMSpower() {
@@ -458,20 +575,28 @@ void handle_BMSpower() {
       } else if (currentTime - lastPowerRemovalTime >= 10000) {
         // There's still current, and we don't want to weld the contactors, so give up.
 
-        logging.printf("BMS reset: Aborting, contactors are still under load.\n");
-
         datalayer.system.status.bms_reset_status = BMS_RESET_IDLE;
-        set_event(EVENT_PERIODIC_BMS_RESET_FAILURE, 0);
+        set_event(EVENT_PERIODIC_BMS_RESET_FAILURE, 0);  // also printing a log entry
         clear_event(EVENT_PERIODIC_BMS_RESET_FAILURE);
       }
     } else if (datalayer.system.status.bms_reset_status == BMS_RESET_POWERED_OFF) {
+      bms_reset_can_keepalive_tick();
+
       // Check if the user configured duration has passed
-      if (currentTime - lastPowerRemovalTime >= datalayer.battery.settings.user_set_bms_reset_duration_ms) {
+      if (currentTime - lastPowerRemovalTime >= datalayer.battery_settings.user_set_bms_reset_duration_ms) {
         bms_power_on();
         bmsPowerOnTime = currentTime;
+        /* The last periodic refresh can have been up to a full interval ago, which would leave
+           the BMS only a sliver of the window to get back on the bus. Refreshing here gives it
+           the whole window from power-on, measured from the same moment for every off time. */
+        if (bms_reset_needs_can_keepalive()) {
+          bms_reset_refresh_can_alive();
+        }
         datalayer.system.status.bms_reset_status = BMS_RESET_POWERING_ON;
       }
     } else if (datalayer.system.status.bms_reset_status == BMS_RESET_POWERING_ON) {
+      bms_reset_can_keepalive_tick();
+
       // Wait for BMS to start up before unpausing
       if (currentTime - bmsPowerOnTime >= bmsWarmupDuration) {
         // Unpause the battery
@@ -492,6 +617,9 @@ void start_bms_reset() {
     if (datalayer.system.status.bms_reset_status == BMS_RESET_IDLE) {
       // Record when we started the BMS reset process
       lastPowerRemovalTime = millis();
+      // Anchor the keepalive here so the first refresh lands one interval into the reset,
+      // rather than immediately or after a gap left over from a previous reset.
+      lastCanKeepaliveTime = lastPowerRemovalTime;
 
       // Issue a pause, which should stop charge/discharge whilst the reset is ongoing
       setBatteryPause(true, false, EquipmentStop::UNCHANGED, false);

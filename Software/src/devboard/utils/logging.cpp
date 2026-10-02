@@ -4,7 +4,8 @@
 
 #include <WiFi.h>
 #include <WiFiUdp.h>
-#include "../wifi/wifi.h"  // custom_hostname, default_hostname()
+#include "../network/hostname.h"        // active_hostname()
+#include "../network/network_status.h"  // network_connected()
 
 #define MAX_LINE_LENGTH_PRINTF 128
 #define MAX_LENGTH_TIME_STR 14
@@ -72,23 +73,9 @@ static uint16_t syslogDropped = 0;
 // owned for a few microseconds (a memcpy) and contention is effectively zero.
 static SemaphoreHandle_t syslogMutex = xSemaphoreCreateMutex();
 
-// Same rule as init_WiFi(): custom hostname if set, otherwise the MAC-derived default.
-// Cached — default_hostname() re-reads eFuse and allocates a String on every call.
-// Only the default is cached, so a call made before settings are loaded cannot freeze a wrong name in.
-static const char* syslog_hostname(void) {
-  if (!custom_hostname.empty()) {
-    return custom_hostname.c_str();
-  }
-  static String fallback;
-  if (fallback.isEmpty()) {
-    fallback = default_hostname();
-  }
-  return fallback.c_str();
-}
-
 static bool syslog_online(void) {
-  // Sendable when joined to a network (STA) OR when a client is on our SoftAP.
-  return (WiFi.status() == WL_CONNECTED) || (WiFi.softAPgetStationNum() > 0);
+  // Sendable when connected to a network OR when a client is on our SoftAP.
+  return network_connected() || (WiFi.softAPgetStationNum() > 0);
 }
 
 // Called ONLY from syslog_task, and never with the mutex held.
@@ -102,7 +89,7 @@ static void syslog_send(uint8_t sev, const char* proc, const char* msg) {
     // RFC 5424: <PRI>1 TIMESTAMP HOSTNAME APP PROCID MSGID MSG
     // NILVALUE '-' timestamp -> the syslog server stamps on receipt.
     // APP-NAME carries the FreeRTOS task that produced the line.
-    syslogUdp.printf("<%u>1 - %s %s - - - %s", pri, syslog_hostname(), proc, msg);
+    syslogUdp.printf("<%u>1 - %s %s - - - %s", pri, active_hostname().c_str(), proc, msg);
     syslogUdp.endPacket();
   }
 }
@@ -273,16 +260,11 @@ void Logging::add_timestamp(size_t size) {
   static char timestr_buffer[MAX_LENGTH_TIME_STR];
 
   if (datalayer.system.info.web_logging_active) {
-    if (!datalayer.system.info.can_logging_active) {
-      /* If web debug is active and can logging is inactive, 
-       * we use the debug logging memory directly for writing the timestring */
-      if (offset + size + MAX_LENGTH_TIME_STR > message_string_size) {
-        offset = 0;
-      }
-      timestr = datalayer.system.info.logged_can_messages + offset;
-    } else {
-      timestr = timestr_buffer;
+    /* If web debug is active, we use the debug logging memory directly for writing the timestring */
+    if (offset + size + MAX_LENGTH_TIME_STR > message_string_size) {
+      offset = 0;
     }
+    timestr = datalayer.system.info.logged_can_messages + offset;
   } else {
     timestr = timestr_buffer;
   }
@@ -290,13 +272,15 @@ void Logging::add_timestamp(size_t size) {
   offset += min(MAX_LENGTH_TIME_STR - 1,
                 snprintf(timestr, MAX_LENGTH_TIME_STR, "%8lu.%03lu ", currentTime / 1000, currentTime % 1000));
 
-  if (datalayer.system.info.web_logging_active && !datalayer.system.info.can_logging_active) {
+  if (datalayer.system.info.web_logging_active) {
     datalayer.system.info.logged_can_messages_offset = offset;  // Update offset in buffer
   }
 
+#ifdef SDCARD
   if (datalayer.system.info.SD_logging_active) {
     add_log_to_buffer((uint8_t*)timestr, MAX_LENGTH_TIME_STR);
   }
+#endif
 
   if (datalayer.system.info.usb_logging_active) {
     usb_log_write((const uint8_t*)timestr, strlen(timestr));
@@ -306,7 +290,10 @@ void Logging::add_timestamp(size_t size) {
 size_t Logging::write(const uint8_t* buffer, size_t size) {
   // Check if any logging is enabled at runtime
   if (!datalayer.system.info.web_logging_active && !datalayer.system.info.usb_logging_active &&
-      !datalayer.system.info.SD_logging_active && !datalayer.system.info.syslog_logging_active) {
+#ifdef SDCARD
+      !datalayer.system.info.SD_logging_active &&
+#endif
+      !datalayer.system.info.syslog_logging_active) {
     return 0;
   }
 
@@ -319,9 +306,11 @@ size_t Logging::write(const uint8_t* buffer, size_t size) {
     add_timestamp(size);
   }
 
+#ifdef SDCARD
   if (datalayer.system.info.SD_logging_active) {
     add_log_to_buffer(buffer, size);
   }
+#endif
 
   if (datalayer.system.info.usb_logging_active) {
     usb_log_write(buffer, size);
@@ -329,7 +318,7 @@ size_t Logging::write(const uint8_t* buffer, size_t size) {
 
   syslog_emit(buffer, size);
 
-  if (datalayer.system.info.web_logging_active && !datalayer.system.info.can_logging_active) {
+  if (datalayer.system.info.web_logging_active) {
     char* message_string = datalayer.system.info.logged_can_messages;
     size_t offset =
         datalayer.system.info.logged_can_messages_offset;  // Keeps track of the current position in the buffer
@@ -349,7 +338,10 @@ size_t Logging::write(const uint8_t* buffer, size_t size) {
 void Logging::printf(const char* fmt, ...) {
   // Check if any logging is enabled at runtime
   if (!datalayer.system.info.web_logging_active && !datalayer.system.info.usb_logging_active &&
-      !datalayer.system.info.SD_logging_active && !datalayer.system.info.syslog_logging_active) {
+#ifdef SDCARD
+      !datalayer.system.info.SD_logging_active &&
+#endif
+      !datalayer.system.info.syslog_logging_active) {
     return;
   }
 
@@ -365,17 +357,12 @@ void Logging::printf(const char* fmt, ...) {
   char* message_buffer;
 
   if (datalayer.system.info.web_logging_active) {
-    if (!datalayer.system.info.can_logging_active) {
-      /* If web debug is active and can logging is inactive, 
-       * we use the debug logging memory directly for writing the output */
-      if (offset + MAX_LINE_LENGTH_PRINTF > message_string_size) {
-        // Not enough space, reset and start from the beginning
-        offset = 0;
-      }
-      message_buffer = message_string + offset;
-    } else {
-      message_buffer = buffer;
+    /* If web debug is active, we use the debug logging memory directly for writing the output */
+    if (offset + MAX_LINE_LENGTH_PRINTF > message_string_size) {
+      // Not enough space, reset and start from the beginning
+      offset = 0;
     }
+    message_buffer = message_string + offset;
   } else {
     message_buffer = buffer;
   }
@@ -401,9 +388,11 @@ void Logging::printf(const char* fmt, ...) {
     message_buffer[size - 1] = '\n';
   }
 
+#ifdef SDCARD
   if (datalayer.system.info.SD_logging_active) {
     add_log_to_buffer((uint8_t*)message_buffer, size);
   }
+#endif
 
   if (datalayer.system.info.usb_logging_active) {
     usb_log_write((const uint8_t*)message_buffer, size);
@@ -411,7 +400,7 @@ void Logging::printf(const char* fmt, ...) {
 
   syslog_emit((const uint8_t*)message_buffer, size);
 
-  if (datalayer.system.info.web_logging_active && !datalayer.system.info.can_logging_active) {
+  if (datalayer.system.info.web_logging_active) {
     // Data was already added to buffer, just move offset
     datalayer.system.info.logged_can_messages_offset =
         offset + size;  // Keeps track of the current position in the buffer

@@ -8,8 +8,9 @@
 #include "../Software/src/datalayer/datalayer.h"
 #include "../Software/src/devboard/utils/events.h"
 
-// TX capture hook provided by the test emul (test/emul/can.cpp).
-extern std::vector<CAN_frame>& emul_tx_frames();
+// TX capture hooks provided by the test emul (test/emul/can.cpp).
+void clear_transmitted_frames();
+const std::vector<CAN_frame>& get_transmitted_frames();
 // Emul clock control (test/emul/time.cpp) — reset so reply timing is deterministic.
 void set_millis64(uint64_t time);
 
@@ -100,7 +101,7 @@ TEST_F(ControllerRxTest, PowerFrameDecodesRemainingAndBalancingBit) {
   const BATTERY_NODE_TYPE& n = datalayer.system.battery_nodes[0];
   EXPECT_EQ(n.max_charge_W, 3000);
   EXPECT_EQ(n.max_discharge_W, 4000);
-  EXPECT_EQ(n.remaining_Wh, 10000);  // 5000 * 2
+  EXPECT_EQ(n.remaining_Wh, 10000);  // 1000 * 10
   EXPECT_EQ(n.temp_min_dC, 10);
   EXPECT_TRUE(n.balancing);
 }
@@ -121,6 +122,35 @@ TEST_F(ControllerRxTest, InfoFrameRescalesSoh) {
   controller_can.receive_can_frame(&f);
 
   EXPECT_EQ(datalayer.system.battery_nodes[0].soh_pptt, 9900);  // 198 * 50
+}
+
+TEST_F(ControllerRxTest, InfoFrameRescalesCapacityPast16Bits) {
+  CAN_frame f = {};
+  f.ID = IU_NODE_INFO_ID(1);
+  f.DLC = 8;
+  const uint16_t cap_wire = 84000 / IU_CAP_WH_WIRE_SCALE;  // 2x BMW i3 120Ah, does not fit 16 bits in Wh
+  f.data.u8[0] = cap_wire >> 8;
+  f.data.u8[1] = cap_wire & 0xFF;
+  iu_crc_stamp(f.ID, f.data.u8, f.DLC);
+
+  controller_can.receive_can_frame(&f);
+
+  EXPECT_EQ(datalayer.system.battery_nodes[0].total_capacity_Wh, 84000u);
+}
+
+TEST_F(ControllerRxTest, IdentFromOtherProtocolVersionIsIgnored) {
+  CAN_frame f = {};
+  f.ID = IU_NODE_IDENT_ID(1);
+  f.DLC = 8;
+  f.data.u8[4] = IU_PROTOCOL_VERSION - 1;  // e.g. a node still on the 2 Wh capacity layout
+  iu_crc_stamp(f.ID, f.data.u8, f.DLC);
+  controller_can.receive_can_frame(&f);
+  EXPECT_FALSE(datalayer.system.battery_nodes[0].ident_received);
+
+  f.data.u8[4] = IU_PROTOCOL_VERSION;
+  iu_crc_stamp(f.ID, f.data.u8, f.DLC);
+  controller_can.receive_can_frame(&f);
+  EXPECT_TRUE(datalayer.system.battery_nodes[0].ident_received);
 }
 
 TEST_F(ControllerRxTest, CorruptFrameIsDroppedWithoutTouchingNodeState) {
@@ -158,15 +188,18 @@ TEST(InterUnitEndToEnd, NodeStatusPowerFramesRoundTripThroughController) {
   controller_can.begin();
   battery_node_can.begin();
 
+  // The node reports the installation behind it (datalayer.aggregate), like any inverter would;
+  // only the link voltage and the balancing flag come from the pack itself.
   datalayer.system.status.battery_node_id = 1;
   datalayer.battery.status.voltage_dV = 4000;
-  datalayer.battery.status.reported_soc = 8000;  // 80.00%
-  datalayer.battery.status.current_dA = -50;
-  datalayer.battery.status.temperature_max_dC = 250;  // 25.0 C -> 25
-  datalayer.battery.status.temperature_min_dC = 100;  // 10.0 C -> 10
-  datalayer.battery.status.max_charge_power_W = 3000;
-  datalayer.battery.status.max_discharge_power_W = 4000;
-  datalayer.battery.status.remaining_capacity_Wh = 10000;
+  datalayer.aggregate.reported_soc = 8000;  // 80.00%
+  datalayer.aggregate.current_dA = -50;
+  datalayer.aggregate.temperature_max_dC = 250;  // 25.0 C -> 25
+  datalayer.aggregate.temperature_min_dC = 100;  // 10.0 C -> 10
+  datalayer.aggregate.max_charge_power_W = 3000;
+  datalayer.aggregate.max_discharge_power_W = 4000;
+  datalayer.aggregate.remaining_capacity_Wh = 100000;  // above the old 16-bit Wh ceiling
+  datalayer.aggregate.total_capacity_Wh = 160000;
   datalayer.battery.status.offline_balancing = true;
 
   // Deliver a valid heartbeat so the node schedules its reply burst.
@@ -176,12 +209,12 @@ TEST(InterUnitEndToEnd, NodeStatusPowerFramesRoundTripThroughController) {
   iu_crc_stamp(hb.ID, hb.data.u8, hb.DLC);
   battery_node_can.receive_can_frame(&hb);
 
-  emul_tx_frames().clear();
+  clear_transmitted_frames();
   battery_node_can.transmit(1000000);  // well past the (node_id * 5ms) reply delay
 
   // Replay every frame the node put on the wire into the controller.
-  ASSERT_FALSE(emul_tx_frames().empty());
-  for (CAN_frame frame : emul_tx_frames()) {
+  ASSERT_FALSE(get_transmitted_frames().empty());
+  for (CAN_frame frame : get_transmitted_frames()) {
     controller_can.receive_can_frame(&frame);
   }
 
@@ -193,7 +226,7 @@ TEST(InterUnitEndToEnd, NodeStatusPowerFramesRoundTripThroughController) {
   EXPECT_EQ(n.temp_min_dC, 10);
   EXPECT_EQ(n.max_charge_W, 3000);
   EXPECT_EQ(n.max_discharge_W, 4000);
-  EXPECT_EQ(n.remaining_Wh, 10000);
+  EXPECT_EQ(n.remaining_Wh, 100000u);
   EXPECT_TRUE(n.balancing);
   EXPECT_TRUE(n.online);
 }

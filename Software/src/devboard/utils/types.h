@@ -51,10 +51,12 @@ enum BMSResetState {
   BMS_RESET_POWERING_ON,
 };
 
+#ifndef SMALL_FLASH_DEVICE
 /** Node operating mode for controller/node inter-unit protocol */
 enum node_mode_enum { NODE_STANDALONE = 0, NODE_CONTROLLER = 1, NODE_BATTERY = 2 };
 
 #define MAX_BATTERY_NODES 24
+#endif  // SMALL_FLASH_DEVICE
 
 #define DISCHARGING 1
 #define CHARGING 2
@@ -196,6 +198,12 @@ extern GPIOOPT6 user_selected_gpioopt6;
 #endif
 extern GPIOOPT2 user_selected_gpioopt2;
 extern GPIOOPT3 user_selected_gpioopt3;
+
+/* The system runs standalone, so events reporting the absence of a
+ * grid-tied inverter are not faults. Owned core-side because the core
+ * events engine is what consumes it; any inverter can be run offgrid, so it
+ * describes the installation rather than a protocol capability. */
+extern bool user_selected_inverter_offgrid;
 extern GPIOOPT4 user_selected_gpioopt4;
 
 #endif
