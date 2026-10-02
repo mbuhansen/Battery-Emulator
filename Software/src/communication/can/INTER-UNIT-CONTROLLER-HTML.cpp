@@ -7,8 +7,6 @@
 #include "../../datalayer/datalayer.h"
 #include "INTER-UNIT-PROTOCOL.h"
 
-#ifndef SMALL_FLASH_DEVICE
-
 String InterUnitControllerHtmlRenderer::get_status_html() {
   String content;
 
@@ -161,5 +159,3 @@ String InterUnitControllerHtmlRenderer::get_status_html() {
   content += "</div>";  // end grid
   return content;
 }
-
-#endif  // SMALL_FLASH_DEVICE

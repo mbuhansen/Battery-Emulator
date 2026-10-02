@@ -317,7 +317,6 @@ void init_stored_settings() {
   datalayer_extended.bydAtto3.balancing_enabled = settings.getBool("BYDBALEN", false);
   datalayer_extended.bydAtto3.balancing_hold_minutes = constrain(settings.getUInt("BYDBALMIN", 30), 1u, 1440u);
 
-#ifndef SMALL_FLASH_DEVICE
   // Controller/Node inter-unit protocol settings
   // Derive node mode from battery/inverter selection — no separate NODEMODE key needed.
   // InterUnitController battery type → this unit is the Controller.
@@ -334,7 +333,6 @@ void init_stored_settings() {
   if (datalayer.system.status.battery_node_id < 1 || datalayer.system.status.battery_node_id > MAX_BATTERY_NODES) {
     datalayer.system.status.battery_node_id = 1;  // Clamp to valid range
   }
-#endif  // SMALL_FLASH_DEVICE
 }
 
 void clear_wifi_sta_settings() {
@@ -406,10 +404,8 @@ void store_settings() {
   settings.saveBool("BYDBALEN", datalayer_extended.bydAtto3.balancing_enabled);
   settings.saveUInt("BYDBALMIN", datalayer_extended.bydAtto3.balancing_hold_minutes);
 
-#ifndef SMALL_FLASH_DEVICE
   // Controller/Node inter-unit protocol settings
   // node_mode is derived from BATTTYPE/INVTYPE at load time — no need to save separately.
   // NVM key "SLAVENODEID" is kept for backward compatibility with saved settings.
   settings.saveUInt("SLAVENODEID", datalayer.system.status.battery_node_id);
-#endif  // SMALL_FLASH_DEVICE
 }

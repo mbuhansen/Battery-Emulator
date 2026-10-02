@@ -421,7 +421,6 @@ void update_machineryprotection() {
     }
   }
 
-#ifndef SMALL_FLASH_DEVICE
   if (datalayer.system.status.node_mode == NODE_BATTERY) {
     // Check if the controller is still sending heartbeats. If we go 60s without one we raise a warning
     if (!datalayer.system.status.CAN_controller_still_alive) {
@@ -432,7 +431,6 @@ void update_machineryprotection() {
       clear_event(EVENT_CAN_CONTROLLER_MISSING);
     }
   }
-#endif  // SMALL_FLASH_DEVICE
 
   if (charger) {
     // Assuming chargers are all CAN here.
