@@ -693,6 +693,9 @@ static uint32_t init_native_can(CAN_Speed speed, gpio_num_t tx_pin, gpio_num_t r
   settingsespcan->mRequestedCANMode = ACAN_ESP32_Settings::NormalMode;
   settingsespcan->mTxPin = tx_pin;
   settingsespcan->mRxPin = rx_pin;
+  // The library default of 32 frames overflows when several of a battery's send timers fall
+  // due in the same few milliseconds (e.g. BMW i3: 640 ms + 5 s + 10 s line up every 80 s).
+  settingsespcan->mDriverTransmitBufferSize = 64;
 
   // (Re)start the CAN interface
   return ACAN_ESP32::can.begin(*settingsespcan);
