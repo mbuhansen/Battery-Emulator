@@ -54,7 +54,7 @@ jobs:
         path: |
           ~/.cache/pip
           ~/.platformio/.cache
-        key: ${{ runner.os }}-pio
+        key: ${{ runner.os }}-pio-core6119
 
     # Tighter cache (of platformio itself)
     - uses: actions/cache@v6
@@ -62,14 +62,25 @@ jobs:
         path: |
           ~/.cache/pip
           ~/.platformio
-        key: ${{ runner.os }}-pio-${{ steps.platformio_ini_hash.outputs.platformio_ini_hash }}
+        key: ${{ runner.os }}-pio-core6119-${{ steps.platformio_ini_hash.outputs.platformio_ini_hash }}
 
     - uses: actions/setup-python@v7
       with:
         python-version: '3.13'
 
+    # The ESP-IDF pass (custom_sdkconfig) spawns its own penv and installs the
+    # latest pioarduino core into it, whose tool-scons does not match platform
+    # 55.03.39 ("No module named 'SCons.Tool.FortranCommon'"). Constrain every
+    # pip/uv invocation in the job. Backport of upstream 72a93ff6.
+    - name: Constrain PlatformIO Core version
+      run: |
+        printf 'platformio==6.1.19\npioarduino==6.1.19\n' > "$RUNNER_TEMP/pio-constraints.txt"
+        echo "PIP_CONSTRAINT=$RUNNER_TEMP/pio-constraints.txt" >> "$GITHUB_ENV"
+        echo "UV_CONSTRAINT=$RUNNER_TEMP/pio-constraints.txt" >> "$GITHUB_ENV"
+
     - name: Install PlatformIO Core
-      run: pip install --upgrade platformio
+      #run: pip install --upgrade platformio
+      run: pip install --upgrade "platformio==6.1.19" # fix for No module named 'SCons.Tool.FortranCommon'
 
     - name: Build image for ${{ matrix.board_name }}
       run: pio run -e ${{ matrix.pio_env }} -t checkprogsize 2>&1 | tee checkprogsize.txt
