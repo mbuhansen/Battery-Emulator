@@ -1123,6 +1123,26 @@ String raw_settings_processor(const String& var, BatteryEmulatorSettingsStore& s
     return settings.getBool("DIGITALHVIL") ? "checked" : "";
   }
 
+#ifndef SMALL_FLASH_DEVICE
+  if (var == "BMWI3SOCHAVR") {
+    uint8_t val = settings.getUInt("BMWI3SOCHAVR", 0);
+    String sel = "";
+    if (val == 0)
+      sel +=
+          "<option value='0' selected>Disable (use BMS SOC)</option><option value='1'>Auto (use Havrla if &gt;3% "
+          "difference)</option><option value='2'>Enable (always use Havrla)</option>";
+    else if (val == 1)
+      sel +=
+          "<option value='0'>Disable (use BMS SOC)</option><option value='1' selected>Auto (use Havrla if &gt;3% "
+          "difference)</option><option value='2'>Enable (always use Havrla)</option>";
+    else
+      sel +=
+          "<option value='0'>Disable (use BMS SOC)</option><option value='1'>Auto (use Havrla if &gt;3% "
+          "difference)</option><option value='2' selected>Enable (always use Havrla)</option>";
+    return sel;
+  }
+#endif  // SMALL_FLASH_DEVICE
+
   if (var == "GTWRHD") {
     // Boots true when unset, so it must also render checked when unset.
     return settings.getBool("GTWRHD", user_selected_tesla_GTW_rightHandDrive) ? "checked" : "";
@@ -1387,6 +1407,22 @@ String qnhck_zero_text(uint16_t zero_mV) {
 #define QNHCK_SETTINGS_SCRIPT ""
 #endif  // SMALL_FLASH_DEVICE
 
+#ifndef SMALL_FLASH_DEVICE
+// BMW i3 SOC Havrla selector, left out on small flash devices together with the calculation
+#define BMWI3_SOCHAVR_SETTING_HTML \
+  R"rawliteral(
+        <div class="if-bmw-i3">
+          <label for='BMWI3SOCHAVR'>SOC Havrla: </label>
+          <select name='BMWI3SOCHAVR' id='BMWI3SOCHAVR'
+            title="Voltage-based SOC with internal resistance correction">
+          %BMWI3SOCHAVR%
+          </select>
+        </div>
+)rawliteral"
+#else
+#define BMWI3_SOCHAVR_SETTING_HTML ""
+#endif  // SMALL_FLASH_DEVICE
+
 #define SYSLOG_SETTING_HTML \
   R"rawliteral(
         <label>General logging to syslog server: </label>
@@ -1636,6 +1672,11 @@ String qnhck_zero_text(uint16_t zero_mV) {
 
     form .if-tesla { display: none; }
     form[data-battery="32"] .if-tesla, form[data-battery="33"] .if-tesla {
+      display: contents;
+    }
+
+    form .if-bmw-i3 { display: none; }
+    form[data-battery="2"] .if-bmw-i3 {
       display: contents;
     }
 
@@ -2063,6 +2104,7 @@ String qnhck_zero_text(uint16_t zero_mV) {
           </select>
         </div>
 
+)rawliteral" BMWI3_SOCHAVR_SETTING_HTML R"rawliteral(
         <div class="if-estimated">
         <label>Manual charging power, watt: </label>
         <input type='number' name='CHGPOWER' value="%CHGPOWER%" 
