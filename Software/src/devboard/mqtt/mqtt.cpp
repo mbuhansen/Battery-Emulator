@@ -38,7 +38,7 @@ int mqtt_port = mqtt_port_default;
 std::string mqtt_server = mqtt_server_default;
 
 #define MQTT_QOS 0  // MQTT Quality of Service (0, 1, or 2) //TODO: Should this be configurable?
-
+char* mqtt_msg = nullptr;
 // Cap on the esp-mqtt outbox, in bytes. QoS>0 traffic queues in the outbox while the broker
 // or Wi-Fi is unresponsive; without a limit it grows on the heap until OOM. With the limit,
 // enqueueing fails instead — a bounded, recoverable failure.
@@ -46,7 +46,6 @@ std::string mqtt_server = mqtt_server_default;
 
 esp_mqtt_client_config_t mqtt_cfg;
 esp_mqtt_client_handle_t client;
-char mqtt_msg[MQTT_MSG_BUFFER_SIZE];
 MyTimer publish_global_timer(0);  // Will be configured with mqtt_publish_interval_ms on first use
 MyTimer check_global_timer(800);  // check timmer - low-priority MQTT checks, where responsiveness is not critical.
 
@@ -377,10 +376,14 @@ enum ButtonCommand {
   BTN_SET_LIMITS,
   BTN_ESPNOW_RUN,
   BTN_SET_SCALESOC,
+  BTN_RESET_DTC,
+  BTN_SET_VOLTLIMITS,
+  BTN_SET_SOCSCALING,
   BTN_COUNT
 };
-static const char* button_commands[BTN_COUNT] = {"BMSRESET", "PAUSE",      "RESUME",     "RESTART",
-                                                 "STOP",     "SET_LIMITS", "ESPNOW_RUN", "SET_SCALESOC"};
+static const char* button_commands[BTN_COUNT] = {"BMSRESET",  "PAUSE",          "RESUME",        "RESTART",
+                                                 "STOP",      "SET_LIMITS",     "ESPNOW_RUN",    "SET_SCALESOC",
+                                                 "RESET_DTC", "SET_VOLTLIMITS", "SET_SOCSCALING"};
 static String button_command_topics[BTN_COUNT];
 
 static String generateCommonInfoAutoConfigTopic(const char* entity_id) {
@@ -821,7 +824,7 @@ static bool publish_sensor_discovery(const SensorConfig& config, const char* id_
     doc["entity_category"] = "diagnostic";
   }
   set_common_discovery_attributes(doc);
-  serializeJson(doc, mqtt_msg, sizeof(mqtt_msg));
+  serializeJson(doc, mqtt_msg, MQTT_MSG_BUFFER_SIZE);
   bool ok = mqtt_publish(generateCommonInfoAutoConfigTopic(entity_id).c_str(), mqtt_msg, true);
   doc.clear();
   return ok;
@@ -921,7 +924,7 @@ static bool publish_common_info(void) {
         }
       }
 
-      serializeJson(doc, mqtt_msg, sizeof(mqtt_msg));
+      serializeJson(doc, mqtt_msg, MQTT_MSG_BUFFER_SIZE);
       if (mqtt_publish(info_topics[0].c_str(), mqtt_msg, false) == false) {
         log_publish_failure("Common info");
         return false;
@@ -932,7 +935,7 @@ static bool publish_common_info(void) {
     if (datalayer.system.info.configured_batteries > 1) {
       DocClearGuard guard(shared_doc);
       set_aggregate_attributes(shared_doc);
-      serializeJson(shared_doc, mqtt_msg, sizeof(mqtt_msg));
+      serializeJson(shared_doc, mqtt_msg, MQTT_MSG_BUFFER_SIZE);
       if (mqtt_publish(aggregate_topic.c_str(), mqtt_msg, false) == false) {
         log_publish_failure("Aggregate info");
         return false;
@@ -951,7 +954,7 @@ static bool publish_common_info(void) {
           esp32hal->system_booted_up()) {
         DocClearGuard guard(shared_doc);
         set_battery_attributes(shared_doc, *target.data, target.index, bat->supports_charged_energy());
-        serializeJson(shared_doc, mqtt_msg, sizeof(mqtt_msg));
+        serializeJson(shared_doc, mqtt_msg, MQTT_MSG_BUFFER_SIZE);
         if (mqtt_publish(info_topics[target.index - 1].c_str(), mqtt_msg, false) == false) {
           log_publish_failure("Common info");
           return false;
@@ -984,12 +987,12 @@ static bool publish_cell_data_state(const DATALAYER_BATTERY_TYPE& battery_data, 
   // balancing flags are valid as soon as the cell count is known.
   const bool voltages_valid = battery_data.status.cell_voltages_mV[battery_data.info.number_of_cells - 1] != 0u;
 
-  size_t len = snprintf(mqtt_msg, sizeof(mqtt_msg), "{");
+  size_t len = snprintf(mqtt_msg, MQTT_MSG_BUFFER_SIZE, "{");
 
   if (voltages_valid) {
-    len += snprintf(mqtt_msg + len, sizeof(mqtt_msg) - len, "\"cell_voltages\":[");
+    len += snprintf(mqtt_msg + len, MQTT_MSG_BUFFER_SIZE - len, "\"cell_voltages\":[");
     for (size_t i = 0; i < battery_data.info.number_of_cells; ++i) {
-      if (len >= sizeof(mqtt_msg) - 32) {  // headroom for this element plus the closing "]}"
+      if (len >= MQTT_MSG_BUFFER_SIZE - 32) {  // headroom for this element plus the closing "]}"
         logging.println("Cell data MQTT msg too large for buffer");
         return true;  // skip this payload, don't abort the publish cycle
       }
@@ -997,25 +1000,25 @@ static bool publish_cell_data_state(const DATALAYER_BATTERY_TYPE& battery_data, 
       // 0.000 V. Sent as JSON null so the per-cell HA entity goes unknown and a chart drawn from
       // this array leaves a gap rather than a spike to the bottom of the scale.
       if (battery_data.status.cell_voltages_mV[i] == 0u) {
-        len += snprintf(mqtt_msg + len, sizeof(mqtt_msg) - len, "%snull", (i != 0u) ? "," : "");
+        len += snprintf(mqtt_msg + len, MQTT_MSG_BUFFER_SIZE - len, "%snull", (i != 0u) ? "," : "");
       } else {
-        len += snprintf(mqtt_msg + len, sizeof(mqtt_msg) - len, "%s%.3f", (i != 0u) ? "," : "",
+        len += snprintf(mqtt_msg + len, MQTT_MSG_BUFFER_SIZE - len, "%s%.3f", (i != 0u) ? "," : "",
                         ((float)battery_data.status.cell_voltages_mV[i]) / 1000.0f);
       }
     }
-    len += snprintf(mqtt_msg + len, sizeof(mqtt_msg) - len, "],");
+    len += snprintf(mqtt_msg + len, MQTT_MSG_BUFFER_SIZE - len, "],");
   }
 
-  len += snprintf(mqtt_msg + len, sizeof(mqtt_msg) - len, "\"cell_balancing\":[");
+  len += snprintf(mqtt_msg + len, MQTT_MSG_BUFFER_SIZE - len, "\"cell_balancing\":[");
   for (size_t i = 0; i < battery_data.info.number_of_cells; ++i) {
-    if (len >= sizeof(mqtt_msg) - 32) {  // headroom for this element plus the closing "]}"
+    if (len >= MQTT_MSG_BUFFER_SIZE - 32) {  // headroom for this element plus the closing "]}"
       logging.println("Cell data MQTT msg too large for buffer");
       return true;  // skip this payload, don't abort the publish cycle
     }
-    len += snprintf(mqtt_msg + len, sizeof(mqtt_msg) - len, "%s%s", (i != 0u) ? "," : "",
+    len += snprintf(mqtt_msg + len, MQTT_MSG_BUFFER_SIZE - len, "%s%s", (i != 0u) ? "," : "",
                     battery_data.status.cell_balancing_status[i] ? "true" : "false");
   }
-  len += snprintf(mqtt_msg + len, sizeof(mqtt_msg) - len, "]}");
+  len += snprintf(mqtt_msg + len, MQTT_MSG_BUFFER_SIZE - len, "]}");
 
   if (!mqtt_publish(state_topic.c_str(), mqtt_msg, false)) {
     log_publish_failure("Cell data");
@@ -1042,7 +1045,7 @@ static bool publish_cell_voltage_discovery(const DATALAYER_BATTERY_TYPE& battery
     set_battery_voltage_attributes(doc, i, cellNumber, state_topic, entity_prefix, battery_name_suffix);
     set_common_discovery_attributes(doc);
 
-    serializeJson(doc, mqtt_msg, sizeof(mqtt_msg));
+    serializeJson(doc, mqtt_msg, MQTT_MSG_BUFFER_SIZE);
     if (mqtt_publish(generateCellVoltageAutoConfigTopic(cellNumber, topic_suffix).c_str(), mqtt_msg, true) == false) {
       return false;
     }
@@ -1122,7 +1125,7 @@ bool publish_events() {
     doc["icon"] = "mdi:information-outline";
     doc["entity_category"] = "diagnostic";
     set_common_discovery_attributes(doc);
-    serializeJson(doc, mqtt_msg, sizeof(mqtt_msg));
+    serializeJson(doc, mqtt_msg, MQTT_MSG_BUFFER_SIZE);
     if (mqtt_publish(generateEventsAutoConfigTopic("event").c_str(), mqtt_msg, true)) {
       ha_events_published = true;
     } else {
@@ -1161,7 +1164,7 @@ bool publish_events() {
       doc["message"] = get_event_message_string(event_handle);
       doc["millis"] = String(event_pointer->timestamp);
 
-      serializeJson(doc, mqtt_msg, sizeof(mqtt_msg));
+      serializeJson(doc, mqtt_msg, MQTT_MSG_BUFFER_SIZE);
       if (!mqtt_publish(state_topic.c_str(), mqtt_msg, false)) {
         log_publish_failure("Event");
         return false;
@@ -1199,7 +1202,7 @@ static bool publish_buttons_discovery(void) {
           doc["entity_category"] = "diagnostic";
         }
         set_common_discovery_attributes(doc);
-        serializeJson(doc, mqtt_msg, sizeof(mqtt_msg));
+        serializeJson(doc, mqtt_msg, MQTT_MSG_BUFFER_SIZE);
         if (!mqtt_publish(generateButtonAutoConfigTopic(config.entity_id).c_str(), mqtt_msg, true)) {
           return false;
         }
@@ -1338,6 +1341,129 @@ void mqtt_message_received(char* topic_raw, int topic_len, char* data, int data_
     }
   }
 
+  // Clear the diagnostic trouble codes of a battery, like the "Reset DTC" button on the battery
+  // page. Payload: battery number 1, 2 or 3; an empty payload means battery 1.
+  if (strcmp(topic, button_command_topics[BTN_RESET_DTC].c_str()) == 0) {
+    Battery* bat = nullptr;
+    if (data_len == 0 || (data_len == 1 && data[0] == '1')) {
+      bat = battery;
+    } else if (data_len == 1 && data[0] == '2') {
+      bat = battery2;
+    } else if (data_len == 1 && data[0] == '3') {
+      bat = battery3;
+    } else {
+      logging.printf("MQTT: invalid RESET_DTC payload [%.*s], expected 1, 2 or 3\n", data_len, data);
+    }
+    if (bat != nullptr) {
+      if (bat->supports_reset_DTC()) {
+        bat->reset_DTC();
+        logging.println("MQTT: RESET_DTC sent");
+      } else {
+        logging.println("MQTT: RESET_DTC not supported by this battery");
+      }
+    }
+  }
+
+  // The user set voltage limits, as on the settings page, stored so they survive a reboot.
+  // Payload: {"active": true/false, "max_v": 0.1-1000.0, "min_v": 0.1-1000.0}. Any key may be
+  // omitted to leave that value unchanged. Nothing is changed unless min_v ends up below max_v.
+  if (strcmp(topic, button_command_topics[BTN_SET_VOLTLIMITS].c_str()) == 0) {
+    JsonDocument doc;
+    char* data_str = strndup(data, data_len);
+    DeserializationError err = deserializeJson(doc, data_str);
+    free(data_str);
+
+    if (err) {
+      logging.printf("MQTT: SET_VOLTLIMITS has invalid JSON payload [%.*s]\n", data_len, data);
+    } else {
+      bool valid = true;
+      // The datalayer stores these in dV (4100 = 410.0 V), hence the *10.
+      uint16_t max_dV = datalayer.battery_settings.max_user_set_charge_voltage_dV;
+      uint16_t min_dV = datalayer.battery_settings.max_user_set_discharge_voltage_dV;
+      if (doc["max_v"].is<float>()) {
+        float max_v = doc["max_v"].as<float>();
+        if (max_v > 0.0f && max_v <= 1000.0f) {
+          max_dV = (uint16_t)lroundf(max_v * 10.0f);
+        } else {
+          logging.printf("MQTT: SET_VOLTLIMITS max_v %.1f out of range (0.1-1000.0)\n", max_v);
+          valid = false;
+        }
+      }
+      if (doc["min_v"].is<float>()) {
+        float min_v = doc["min_v"].as<float>();
+        if (min_v > 0.0f && min_v <= 1000.0f) {
+          min_dV = (uint16_t)lroundf(min_v * 10.0f);
+        } else {
+          logging.printf("MQTT: SET_VOLTLIMITS min_v %.1f out of range (0.1-1000.0)\n", min_v);
+          valid = false;
+        }
+      }
+      if (valid && min_dV >= max_dV) {
+        logging.println("MQTT: SET_VOLTLIMITS min_v must be below max_v");
+        valid = false;
+      }
+      if (valid) {
+        datalayer.battery_settings.max_user_set_charge_voltage_dV = max_dV;
+        datalayer.battery_settings.max_user_set_discharge_voltage_dV = min_dV;
+        if (doc["active"].is<bool>()) {
+          datalayer.battery_settings.user_set_voltage_limits_active = doc["active"].as<bool>();
+        }
+        store_settings();
+        logging.printf("MQTT: voltage limits %s, max %.1f V, min %.1f V\n",
+                       datalayer.battery_settings.user_set_voltage_limits_active ? "on" : "off", max_dV / 10.0f,
+                       min_dV / 10.0f);
+      }
+    }
+  }
+
+  // "Rescale SOC" as on the settings page, stored so it survives a reboot (SET_SCALESOC above
+  // only changes the limits until the next reboot). Payload: {"active": true/false,
+  // "max_pct": 50.0-100.0, "min_pct": -10.0-50.0}. Any key may be omitted to leave it unchanged.
+  if (strcmp(topic, button_command_topics[BTN_SET_SOCSCALING].c_str()) == 0) {
+    JsonDocument doc;
+    char* data_str = strndup(data, data_len);
+    DeserializationError err = deserializeJson(doc, data_str);
+    free(data_str);
+
+    if (err) {
+      logging.printf("MQTT: SET_SOCSCALING has invalid JSON payload [%.*s]\n", data_len, data);
+    } else {
+      bool valid = true;
+      // The datalayer stores these in 0.01 % units (8000 = 80.0 %), hence the *100.
+      uint16_t max_pptt = datalayer.battery_settings.max_percentage;
+      int16_t min_pptt = datalayer.battery_settings.min_percentage;
+      if (doc["max_pct"].is<float>()) {
+        float max_pct = doc["max_pct"].as<float>();
+        if (max_pct >= 50.0f && max_pct <= 100.0f) {
+          max_pptt = (uint16_t)lroundf(max_pct * 100.0f);
+        } else {
+          logging.printf("MQTT: SET_SOCSCALING max_pct %.1f out of range (50.0-100.0)\n", max_pct);
+          valid = false;
+        }
+      }
+      if (doc["min_pct"].is<float>()) {
+        float min_pct = doc["min_pct"].as<float>();
+        if (min_pct >= -10.0f && min_pct <= 50.0f) {
+          min_pptt = (int16_t)lroundf(min_pct * 100.0f);
+        } else {
+          logging.printf("MQTT: SET_SOCSCALING min_pct %.1f out of range (-10.0-50.0)\n", min_pct);
+          valid = false;
+        }
+      }
+      if (valid) {
+        datalayer.battery_settings.max_percentage = max_pptt;
+        datalayer.battery_settings.min_percentage = min_pptt;
+        if (doc["active"].is<bool>()) {
+          datalayer.battery_settings.soc_scaling_active = doc["active"].as<bool>();
+        }
+        store_settings();
+        logging.printf("MQTT: SOC scaling %s, max %.1f %%, min %.1f %%\n",
+                       datalayer.battery_settings.soc_scaling_active ? "on" : "off", max_pptt / 100.0f,
+                       min_pptt / 100.0f);
+      }
+    }
+  }
+
   free(topic);
 }
 
@@ -1390,6 +1516,13 @@ static void mqtt_event_handler(void* handler_args, esp_event_base_t base, int32_
 }
 
 bool init_mqtt(void) {
+
+  if (mqtt_msg == nullptr) {
+    mqtt_msg = (char*)malloc(MQTT_MSG_BUFFER_SIZE);
+    if (mqtt_msg == nullptr) {
+      return false;  // Out of memory, MQTT can't run
+    }
+  }
 
   if (battery == nullptr) {
     logging.println("ERROR: No battery selected. Aborting MQTT initialization");
