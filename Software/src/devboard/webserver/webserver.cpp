@@ -503,15 +503,15 @@ void init_webserver() {
   };
 
   const char* uintSettingNames[] = {
-      "BATTCVMAX",     "BATTCVMIN",     "MAXPRETIME",    "MAXPREFREQ", "WIFICHANNEL", "DCHGPOWER",    "CHGPOWER",
-      "MQTTPORT",      "MQTTTIMEOUT",   "SOFAR_ID",      "PYLONSEND",  "INVCELLS",    "INVMODULES",   "INVCELLSPER",
-      "INVVLEVEL",     "INVCAPACITY",   "INVBTYPE",      "PRECHGMS",   "PWMFREQ",     "PWMHOLD",      "GTWCOUNTRY",
-      "GTWMAPREG",     "GTWCHASSIS",    "GTWPACK",       "LEDMODE",    "GPIOOPT1",    "GPIOOPT2",     "GPIOOPT3",
-      "INVSUNTYPE",    "GPIOOPT4",      "PYLONBAUD",     "PYLONBRAND", "DALYPWRPCT",  "DALYPWRDV",    "DALYDVSTART",
-      "DALYPWRDEG",    "DALYPWR0C",     "GPIOOPT5",      "GPIOOPT6",   "INVICNT",     "FOXESSTYPE",   "FOXESSSUBTYPE",
-      "FOXESSMODULES", "CHGTAPERSTART", "CHGTAPERFLOOR", "SYSLOGPORT", "SYSLOGFAC",   "PERBMSRESETH",
+      "BATTCVMAX",     "BATTCVMIN",     "MAXPRETIME",    "MAXPREFREQ", "WIFICHANNEL",  "DCHGPOWER",    "CHGPOWER",
+      "MQTTPORT",      "MQTTTIMEOUT",   "SOFAR_ID",      "PYLONSEND",  "INVCELLS",     "INVMODULES",   "INVCELLSPER",
+      "INVVLEVEL",     "INVCAPACITY",   "INVBTYPE",      "PRECHGMS",   "PWMFREQ",      "PWMHOLD",      "GTWCOUNTRY",
+      "GTWMAPREG",     "GTWCHASSIS",    "GTWPACK",       "LEDMODE",    "GPIOOPT1",     "GPIOOPT2",     "GPIOOPT3",
+      "INVSUNTYPE",    "GPIOOPT4",      "PYLONBAUD",     "PYLONBRAND", "DALYPWRPCT",   "DALYPWRDV",    "DALYDVSTART",
+      "DALYPWRDEG",    "DALYPWR0C",     "GPIOOPT5",      "GPIOOPT6",   "INVICNT",      "FOXESSTYPE",   "FOXESSSUBTYPE",
+      "FOXESSMODULES", "CHGTAPERSTART", "CHGTAPERFLOOR", "SYSLOGPORT", "SYSLOGFAC",    "PERBMSRESETH",
 #ifndef SMALL_FLASH_DEVICE
-      "CTVNOM",        "CTANOM",        "QNHIPN",        "QNHVO",
+      "CTVNOM",        "CTANOM",        "QNHIPN",        "QNHVO",      "BMWI3SOCHAVR",
 #endif  // SMALL_FLASH_DEVICE
   };
 
@@ -654,13 +654,8 @@ void init_webserver() {
             auto type = static_cast<adc_attenuation_t>(atoi(p->value().c_str()));
             settings.saveUInt("CTATTEN", (int)type);
           } else if (p->name() == "QNHTC") {
-            // Entered in mV/°C with one decimal and signed, stored in uV/°C. 0 is off, and removed.
-            int32_t tempco = lroundf(p->value().toFloat() * 10.0f) * 100;
-            if (tempco > QNHCK_MAX_TEMPCO_UV_PER_C) {
-              tempco = QNHCK_MAX_TEMPCO_UV_PER_C;
-            } else if (tempco < -QNHCK_MAX_TEMPCO_UV_PER_C) {
-              tempco = -QNHCK_MAX_TEMPCO_UV_PER_C;
-            }
+            // Entered in mV/°C with two decimals and signed, stored in uV/°C. 0 is off, and removed.
+            const int16_t tempco = qnhck_tempco_uV_per_C(p->value().toFloat());
             if (tempco == 0) {
               settings.removeKey("QNHTC");
             } else {

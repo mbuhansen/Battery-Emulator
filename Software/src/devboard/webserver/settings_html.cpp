@@ -118,6 +118,12 @@ static const std::map<int, String> led_modes = {{0, "Classic"}, {1, "Energy Flow
 // Periodic BMS reset interval, stored in hours.
 static const std::map<int, String> bms_reset_intervals = {{24, "24h"}, {48, "48h"}};
 
+#ifndef SMALL_FLASH_DEVICE
+static const std::map<int, String> bmw_i3_soc_havrla_modes = {{0, "Disable (use BMS SOC)"},
+                                                              {1, "Auto (use Havrla if &gt;3% difference)"},
+                                                              {2, "Enable (always use Havrla)"}};
+#endif  // SMALL_FLASH_DEVICE
+
 // Balancing strategy of a LEAF pack, sent to its LBC as CHG_STA_RQ in 0x1F2 while it starts up.
 // The key is the two-bit signal value itself, which is what gets stored: 00b (no request), 01b
 // (normal charge), 10b (quick charge). 11b (charge stop request) is deliberately not offered.
@@ -362,6 +368,12 @@ String settings_processor(const String& var, BatteryEmulatorSettingsStore& setti
 
   if (var == "QNHVO") {
     return options_from_map(settings.getUInt("QNHVO", QNHCK_DEFAULT_RATED_OUTPUT_MV), QNHCK_RATED_OUTPUTS);
+  }
+
+  if (var == "BMWI3SOCHAVR") {
+    // Out-of-range values boot as Disable (see init_stored_settings()), so show them that way.
+    uint32_t mode = settings.getUInt("BMWI3SOCHAVR", 0);
+    return options_from_map(mode > 2 ? 0 : mode, bmw_i3_soc_havrla_modes);
   }
 #endif  // SMALL_FLASH_DEVICE
 
@@ -1173,7 +1185,7 @@ String raw_settings_processor(const String& var, BatteryEmulatorSettingsStore& s
   }
 
   if (var == "QNHTC") {
-    return String(settings.getInt("QNHTC", 0) / 1000.0f, 1);  // Stored in uV/°C, shown in mV/°C
+    return String(settings.getInt("QNHTC", 0) / 1000.0f, 2);  // Stored in uV/°C, shown in mV/°C
   }
 #endif  // SMALL_FLASH_DEVICE
 
@@ -1430,7 +1442,7 @@ String qnhck_zero_text(uint16_t zero_mV) {
 
           <div class="if-qnhauto">
           <label>Zero point drift (mV/°C): </label>
-          <input type='number' name='QNHTC' value='%QNHTC%' min='-5' max='5' step='0.1' />
+          <input type='number' name='QNHTC' value='%QNHTC%' min='-5' max='5' step='0.01' />
           </div>
 
           <div class="if-qnhmanual">
@@ -1464,6 +1476,22 @@ String qnhck_zero_text(uint16_t zero_mV) {
 #define QNHCK_SETTINGS_HTML ""
 #define QNHCK_SETTINGS_STYLE ""
 #define QNHCK_SETTINGS_SCRIPT ""
+#endif  // SMALL_FLASH_DEVICE
+
+#ifndef SMALL_FLASH_DEVICE
+// BMW i3 SOC Havrla selector, left out on small flash devices together with the calculation
+#define BMWI3_SOCHAVR_SETTING_HTML \
+  R"rawliteral(
+        <div class="if-bmw-i3">
+          <label for='BMWI3SOCHAVR'>SOC Havrla: </label>
+          <select name='BMWI3SOCHAVR' id='BMWI3SOCHAVR'
+            title="Voltage-based SOC with internal resistance correction">
+          %BMWI3SOCHAVR%
+          </select>
+        </div>
+)rawliteral"
+#else
+#define BMWI3_SOCHAVR_SETTING_HTML ""
 #endif  // SMALL_FLASH_DEVICE
 
 #define SYSLOG_SETTING_HTML \
@@ -1696,6 +1724,11 @@ String qnhck_zero_text(uint16_t zero_mV) {
 
     form .if-tesla { display: none; }
     form[data-battery="32"] .if-tesla, form[data-battery="33"] .if-tesla {
+      display: contents;
+    }
+
+    form .if-bmw-i3 { display: none; }
+    form[data-battery="2"] .if-bmw-i3 {
       display: contents;
     }
 
@@ -2111,6 +2144,7 @@ String qnhck_zero_text(uint16_t zero_mV) {
           </select>
         </div>
 
+)rawliteral" BMWI3_SOCHAVR_SETTING_HTML R"rawliteral(
         <div class="if-estimated">
         <label>Manual charging power, watt: </label>
         <input type='number' name='CHGPOWER' value="%CHGPOWER%" 
