@@ -103,16 +103,6 @@ class BmwI3Battery : public CanBattery {
   const char* get_contactor_watchdog_string();
   uint8_t contactor_recovery_attempt_count() { return cw_recovery_attempts; }
 
-  // Charge limit from the highest cell voltage near full. Up to start_mV the BMS allowance passes
-  // unchanged, from there it falls linearly to CHARGE_DERATE_END_W at end_mV and stays there above
-  // it. Never above bms_W, so a zero from the BMS stays zero.
-  static uint32_t cell_voltage_charge_limit_W(uint16_t cell_max_mV, uint16_t start_mV, uint16_t end_mV, uint32_t bms_W);
-  static constexpr uint32_t CHARGE_DERATE_END_W = 1000;
-
-  // Cell voltage charge derate state for the web UI
-  bool charge_derate_active() { return derate_active; }
-  uint32_t charge_derate_limit_W() { return derate_limit_W; }
-
   BatteryHtmlRenderer& get_status_renderer() { return renderer; }
 
  private:
@@ -138,26 +128,6 @@ class BmwI3Battery : public CanBattery {
   const int MAX_PACK_VOLTAGE_120AH = 4032;  // Charge stops if pack voltage exceeds this value
   const int MIN_PACK_VOLTAGE_120AH = 2680;  // Discharge stops if pack voltage exceeds this value
   const int NUMBER_OF_CELLS = 96;
-
-  // Charge derate by the highest cell voltage. Near full the BMS SOC can jump to 100 % when a cell
-  // reaches about 4.10 V under load (seen on a 60 Ah pack), before an SOC based taper reacts. The
-  // charge power is therefore lowered from the cell voltage at 97 % down to 1000 W at the cell
-  // voltage at 99 %, read from the SOC Havrla voltage/SOC tables of each pack size (field-tested by
-  // Havrla on 60/94/120 Ah packs). With this derate only the 60 Ah values are tested on hardware.
-  const uint16_t CHARGE_DERATE_START_MV_60AH = 4068;
-  const uint16_t CHARGE_DERATE_END_MV_60AH = 4079;
-  const uint16_t CHARGE_DERATE_START_MV_94AH = 4103;
-  const uint16_t CHARGE_DERATE_END_MV_94AH = 4129;
-  const uint16_t CHARGE_DERATE_START_MV_120AH = 4113;
-  const uint16_t CHARGE_DERATE_END_MV_120AH = 4162;
-  // A tighter limit applies at once, a looser one is released by at most this much per minute
-  // (about 1 A/min at 390 V). The cell voltage drops as the current falls, so releasing at once would
-  // make the charge power swing up and down.
-  const uint32_t CHARGE_DERATE_RELEASE_W_PER_MIN = 400;
-  bool derate_active = false;
-  uint32_t derate_limit_W = 0;
-  unsigned long derate_last_ms = 0;
-  uint32_t apply_charge_derate(uint32_t bms_W);
 
   DATALAYER_BATTERY_TYPE* datalayer_battery;
 
