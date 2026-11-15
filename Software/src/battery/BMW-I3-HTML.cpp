@@ -60,6 +60,11 @@ String BmwI3HtmlRenderer::get_status_html() {
   content += "<h4>Contactor status: " + String(safeArrayAccess(DCSWText, 16, batt.ST_DCSW())) + "</h4>";
   content += "<h4>Contactor watchdog: " + String(batt.get_contactor_watchdog_string()) +
              " (attempts: " + String(batt.contactor_recovery_attempt_count()) + ")</h4>";
+  if (batt.charge_derate_active()) {
+    content += "<h4>Cell voltage charge derate: active (" + String(batt.charge_derate_limit_W()) + " W)</h4>";
+  } else {
+    content += "<h4>Cell voltage charge derate: off</h4>";
+  }
   static const char* contText[16] = {"Contactors OK",
                                      "One contactor welded!",
                                      "Two contactors welded!",

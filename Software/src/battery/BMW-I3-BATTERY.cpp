@@ -8,6 +8,80 @@
 #include "../devboard/utils/events.h"
 #include "../devboard/utils/logging.h"
 
+uint32_t BmwI3Battery::cell_voltage_charge_limit_W(uint16_t cell_max_mV, uint16_t start_mV, uint16_t end_mV,
+                                                   uint32_t bms_W) {
+  if (cell_max_mV <= start_mV || end_mV <= start_mV) {
+    return bms_W;
+  }
+  uint32_t limit_W = CHARGE_DERATE_END_W;
+  if (cell_max_mV < end_mV && bms_W > CHARGE_DERATE_END_W) {
+    uint32_t progress_mV = cell_max_mV - start_mV;
+    uint32_t span_mV = end_mV - start_mV;
+    limit_W = bms_W - (uint32_t)(((uint64_t)(bms_W - CHARGE_DERATE_END_W) * progress_mV + span_mV / 2) / span_mV);
+  }
+  return limit_W < bms_W ? limit_W : bms_W;
+}
+
+uint32_t BmwI3Battery::apply_charge_derate(uint32_t bms_W) {
+  const uint16_t cell_max_mV = datalayer_battery->status.cell_max_voltage_mV;
+  if (!battery_info_available || cell_max_mV == 0) {
+    derate_active = false;
+    return bms_W;
+  }
+  if (bms_W == 0) {
+    return 0;  // The BMS allows no charging anyway; keep the derate state as it is
+  }
+
+  uint16_t start_mV = CHARGE_DERATE_START_MV_60AH;
+  uint16_t end_mV = CHARGE_DERATE_END_MV_60AH;
+  if (detectedBattery == BATTERY_94AH) {
+    start_mV = CHARGE_DERATE_START_MV_94AH;
+    end_mV = CHARGE_DERATE_END_MV_94AH;
+  } else if (detectedBattery == BATTERY_120AH) {
+    start_mV = CHARGE_DERATE_START_MV_120AH;
+    end_mV = CHARGE_DERATE_END_MV_120AH;
+  }
+
+  const uint32_t raw_W = cell_voltage_charge_limit_W(cell_max_mV, start_mV, end_mV, bms_W);
+  const unsigned long now = millis();
+
+  if (!derate_active) {
+    if (raw_W >= bms_W) {
+      return bms_W;  // Below the start voltage: no derate
+    }
+    derate_active = true;
+    derate_limit_W = raw_W;
+    derate_last_ms = now;
+    logging.printf("BMW i3 battery %u: cell %u mV, charge derated to %u W\n", battery_index, cell_max_mV,
+                   (unsigned)raw_W);
+    return raw_W;
+  }
+
+  if (raw_W <= derate_limit_W) {
+    // Tighter (or equal): apply at once, and start counting the release time from here
+    derate_limit_W = raw_W;
+    derate_last_ms = now;
+  } else {
+    // Looser: release by at most CHARGE_DERATE_RELEASE_W_PER_MIN, in whole watt steps
+    const uint32_t step_W = (uint32_t)(((uint64_t)(now - derate_last_ms) * CHARGE_DERATE_RELEASE_W_PER_MIN) / 60000UL);
+    if (step_W > 0) {
+      derate_limit_W += step_W;
+      derate_last_ms += (unsigned long)((uint64_t)step_W * 60000UL / CHARGE_DERATE_RELEASE_W_PER_MIN);
+    }
+    if (derate_limit_W >= raw_W) {
+      derate_limit_W = raw_W;
+      derate_last_ms = now;
+    }
+  }
+
+  if (derate_limit_W >= bms_W) {
+    derate_active = false;  // Released all the way back to the BMS allowance
+    logging.printf("BMW i3 battery %u: charge derate released\n", battery_index);
+    return bms_W;
+  }
+  return derate_limit_W;
+}
+
 /* Do not change code below unless you are sure what you are doing */
 
 static uint8_t calculateCRC(CAN_frame rx_frame, uint8_t length, uint8_t initial_value) {
@@ -95,7 +169,7 @@ void BmwI3Battery::update_values() {  //This function maps all the values fetche
   if (UserRequestBalancing == NONE) {
     datalayer_battery->status.max_discharge_power_W = battery_BEV_available_power_longterm_discharge;
 
-    datalayer_battery->status.max_charge_power_W = battery_BEV_available_power_longterm_charge;
+    datalayer_battery->status.max_charge_power_W = apply_charge_derate(battery_BEV_available_power_longterm_charge);
   } else {
     datalayer_battery->status.max_discharge_power_W = 0;
 
