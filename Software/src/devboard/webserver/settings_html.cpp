@@ -116,6 +116,9 @@ static const std::map<int, String> led_modes = {{0, "Classic"},     {1, "Energy 
 static const std::map<int, String> led_modes = {{0, "Classic"}, {1, "Energy Flow"}, {2, "Heartbeat"}};
 #endif
 
+// What the charge power taper follows, see ChargeTaperMode in Software.cpp.
+static const std::map<int, String> charge_taper_modes = {{0, "SOC"}, {1, "Highest cell voltage"}};
+
 // Periodic BMS reset interval, stored in hours.
 static const std::map<int, String> bms_reset_intervals = {{24, "24h"}, {48, "48h"}};
 
@@ -425,6 +428,12 @@ String settings_processor(const String& var, BatteryEmulatorSettingsStore& setti
     return options_from_map(settings.getUInt("LEDMODE", 0), led_modes);
   }
 
+  if (var == "CHGTAPERMODE") {
+    // Battery types with a mandatory taper always follow SOC, see setup()
+    const int mode = (battery && battery->mandatory_charge_taper()) ? 0 : (int)settings.getUInt("CHGTAPERMODE", 0);
+    return options_from_map(mode, charge_taper_modes);
+  }
+
   if (var == "PERBMSRESETH") {
     // Missing or unexpected values fall back to the historical 24h interval.
     uint32_t interval = settings.getUInt("PERBMSRESETH", 24);
@@ -643,6 +652,14 @@ String raw_settings_processor(const String& var, BatteryEmulatorSettingsStore& s
 
   if (var == "CHGTAPERFLOOR") {
     return String(settings.getUInt("CHGTAPERFLOOR", 400));
+  }
+
+  if (var == "CHGTAPERCVSTART") {
+    return String(settings.getUInt("CHGTAPERCVSTART", 4100));
+  }
+
+  if (var == "CHGTAPERCVEND") {
+    return String(settings.getUInt("CHGTAPERCVEND", 4150));
   }
 
   if (var == "SLOWCANINV") {
@@ -1853,6 +1870,12 @@ String qnhck_zero_text(uint16_t zero_mV) {
     form[data-chgtapersoc="true"] .if-chgtapersoc {
       display: contents;
     }
+    form .if-chgtaper-soc { display: contents; }
+    form[data-chgtapermode="1"] .if-chgtaper-soc { display: none; }
+    form .if-chgtaper-cell { display: none; }
+    form[data-chgtapermode="1"] .if-chgtaper-cell {
+      display: contents;
+    }
 
     form .if-mqtt { display: none; }
     form[data-mqttenabled="true"] .if-mqtt {
@@ -1877,10 +1900,11 @@ String qnhck_zero_text(uint16_t zero_mV) {
     </style>
 )rawliteral"
 
-#define SETTINGS_HTML_BODY          \
+#define SETTINGS_HTML_BODY                                                                               \
   R"rawliteral(
-  )rawliteral" INDEX_HTML_NAV_START \
-  R"rawliteral(<button onclick="askFactoryReset()">Factory reset</button>)rawliteral" INDEX_HTML_NAV_END R"rawliteral(
+  )rawliteral" INDEX_HTML_NAV_START                                                                      \
+  R"rawliteral(<button onclick="askFactoryReset()">Factory reset</button>)rawliteral" INDEX_HTML_NAV_END \
+  R"rawliteral(
 
   <script>
   function validateWebAuthPassword() {
@@ -2330,13 +2354,30 @@ String qnhck_zero_text(uint16_t zero_mV) {
         <label>Ramp up charge limits gradually:</label>
         <input type='checkbox' name='LOWPASSFILTER' value='on' %LOWPASSFILTER% />
 
-        <label>Charge power tapering based on SOC:</label>
+        <label>Charge power tapering near full:</label>
         <input type='checkbox' name='CHGTAPERSOC' value='on' %CHGTAPERSOC% %CHGTAPERMANDATORY% />
 
         <div class='if-chgtapersoc'>
+        <label>Taper based on: </label>
+        <select name='CHGTAPERMODE' %CHGTAPERMANDATORY%>
+        %CHGTAPERMODE%
+        </select>
+
+        <div class='if-chgtaper-soc'>
         <label>Start tapering at SOC, percent: </label>
         <input type='number' name='CHGTAPERSTART' value="%CHGTAPERSTART%"
         min="50" max="%CHGTAPERMAX%" step="1" />
+        </div>
+
+        <div class='if-chgtaper-cell'>
+        <label>Start tapering at highest cell, mV: </label>
+        <input type='number' name='CHGTAPERCVSTART' value="%CHGTAPERCVSTART%"
+        min="2000" max="5000" step="1" />
+
+        <label>Float charge power reached at highest cell, mV: </label>
+        <input type='number' name='CHGTAPERCVEND' value="%CHGTAPERCVEND%"
+        min="2000" max="5000" step="1" />
+        </div>
 
         <label>Float charge power, W: </label>
         <input type='number' name='CHGTAPERFLOOR' value="%CHGTAPERFLOOR%"

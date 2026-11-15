@@ -59,6 +59,10 @@ uint16_t charge_taper_band_pptt =
     500;  //Taper band in pptt. 500 = taper starts at 95.00% scaled SOC, reaching 0W at 100.00%
 uint16_t charge_taper_floor_W =
     0;  //Minimum charge power in W held during tapering until 100.00% scaled SOC. 0 = disabled, taper goes linearly to 0W
+uint8_t charge_taper_mode =
+    0;  //What the taper follows: 0 = scaled SOC, 1 = highest cell voltage (ChargeTaperMode in Software.cpp)
+uint16_t charge_taper_cell_start_mV = 4100;  //Highest cell voltage where the cell voltage taper starts
+uint16_t charge_taper_cell_end_mV = 4150;    //Highest cell voltage where it reaches the float charge power
 
 uint32_t inverter_modbus_watchdog_timeout_s = MODBUS_INV_WATCHDOG_DEFAULT_S;
 bool inverter_modbus_watchdog_changed = false;

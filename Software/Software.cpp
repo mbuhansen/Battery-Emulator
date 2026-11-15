@@ -189,6 +189,127 @@ static InstallationLimits installation_limits(void) {
           (b.status.voltage_dV > 10) ? b.status.voltage_dV : b.info.max_design_voltage_dV};
 }
 
+/* Writes a tapered charge power into the installation's limits, and pulls the derived current limit
+   down with it, so current-based inverters are covered when the low pass filter is disabled. min()
+   only - the user/remote/safety clamps already applied to the _dA field are never raised. */
+static void apply_charge_taper(InstallationLimits& limits, uint32_t charge_W) {
+  limits.charge_W = charge_W;
+  if (limits.voltage_dV > 10) {
+    uint32_t charge_dA_from_power = (charge_W * 100) / limits.voltage_dV;
+    if (charge_dA_from_power < limits.charge_dA) {
+      limits.charge_dA = (uint16_t)charge_dA_from_power;
+    }
+  }
+}
+
+/* The charge allowance entering the taper: the installation's limit after the effective current cap
+   (remote if active, otherwise user, same precedence as update_calculated_values()), so the taper
+   acts on the limit the inverter actually sees instead of on BMS headroom above the cap. Idempotent
+   with the same cap applied again in filter_inverter_limits() and update_aggregate_limits(). */
+static uint32_t charge_taper_base_W(const InstallationLimits& limits) {
+  uint32_t charge_W = limits.charge_W;
+  if (limits.voltage_dV > 10) {
+    uint32_t cap_W = current_cap_to_power_W(effective_charge_cap_dA(), limits.voltage_dV);
+    if (charge_W > cap_W) {
+      charge_W = cap_W;
+    }
+  }
+  return charge_W;
+}
+
+// What the charge power taper follows (charge_taper_mode, stored as CHGTAPERMODE)
+enum ChargeTaperMode : uint8_t { CHARGE_TAPER_ON_SOC = 0, CHARGE_TAPER_ON_CELL_VOLTAGE = 1 };
+
+/* The cell voltage drops as the charge current falls, so a looser limit is only released by this
+   much per minute. Releasing at once would let the charge power swing up and down. */
+static const uint32_t CHARGE_TAPER_CELL_RELEASE_W_PER_MIN = 400;
+
+/* Linear taper on the highest cell voltage: base_W up to start_mV, down to floor_W at end_mV, and
+   floor_W above it. Never above base_W, so a zero allowance stays zero. An invalid range (end not
+   above start) or an unknown cell voltage (0) leaves base_W untouched. */
+static uint32_t charge_taper_cell_limit_W(uint16_t cell_mV, uint16_t start_mV, uint16_t end_mV, uint32_t base_W,
+                                          uint32_t floor_W) {
+  if (cell_mV == 0 || end_mV <= start_mV || cell_mV <= start_mV) {
+    return base_W;
+  }
+  uint32_t limit_W = floor_W;
+  if (cell_mV < end_mV && base_W > floor_W) {
+    const uint32_t progress_mV = (uint32_t)(cell_mV - start_mV);
+    const uint32_t span_mV = (uint32_t)(end_mV - start_mV);
+    limit_W = base_W - (uint32_t)(((uint64_t)(base_W - floor_W) * progress_mV + span_mV / 2) / span_mV);
+  }
+  return limit_W < base_W ? limit_W : base_W;
+}
+
+/* State of the slow release. One instance for the whole installation. */
+struct ChargeTaperRelease {
+  bool active = false;
+  uint32_t limit_W = 0;
+  unsigned long last_ms = 0;
+};
+
+/* Tightens to raw_W at once, releases towards it by at most release_W_per_min. Returns the limit to
+   use, or base_W once the release has caught up with an untapered allowance again. */
+static uint32_t charge_taper_release(ChargeTaperRelease& s, uint32_t raw_W, uint32_t base_W, unsigned long now_ms,
+                                     uint32_t release_W_per_min) {
+  if (!s.active) {
+    if (raw_W >= base_W) {
+      return base_W;
+    }
+    s.active = true;
+    s.limit_W = raw_W;
+    s.last_ms = now_ms;
+    return raw_W;
+  }
+  if (raw_W <= s.limit_W) {
+    s.limit_W = raw_W;  // Tighter or equal: apply at once, and count the release time from here
+    s.last_ms = now_ms;
+  } else if (release_W_per_min > 0) {
+    const uint32_t step_W = (uint32_t)(((uint64_t)(now_ms - s.last_ms) * release_W_per_min) / 60000UL);
+    if (step_W > 0) {
+      s.limit_W += step_W;
+      s.last_ms += (unsigned long)(((uint64_t)step_W * 60000UL) / release_W_per_min);
+    }
+    if (s.limit_W >= raw_W) {
+      s.limit_W = raw_W;
+      s.last_ms = now_ms;
+    }
+  }
+  if (s.limit_W >= base_W) {
+    s.active = false;  // Released all the way back to the untapered allowance
+    return base_W;
+  }
+  return s.limit_W;
+}
+
+/* Taper on the highest cell voltage of any pack (or Inter-Unit node) instead of on SOC: full power
+   up to the start voltage, linearly down to the float charge power at the end voltage, and held
+   there above it. Like the SOC taper it acts on the whole installation's limit, so the float charge
+   power is for the installation. Meant for batteries whose BMS jumps to 100 % SOC when a cell
+   reaches its top voltage under charge, before an SOC based taper reacts. A tighter limit applies at
+   once, a looser one is released slowly, as the cell voltage drops when the current falls. */
+static void filter_charge_taper_cell_voltage(void) {
+  static ChargeTaperRelease release;
+  const uint16_t cell_mV = datalayer.aggregate.cell_max_voltage_mV;
+  InstallationLimits limits = installation_limits();
+  const uint32_t base_W = charge_taper_base_W(limits);
+  if (base_W == 0) {
+    return;  // A zero from the BMS or the safety layer passes through; keep the release state
+  }
+  const uint32_t raw_W = charge_taper_cell_limit_W(cell_mV, charge_taper_cell_start_mV, charge_taper_cell_end_mV,
+                                                   base_W, charge_taper_floor_W);
+  const bool was_active = release.active;
+  const uint32_t charge_W = charge_taper_release(release, raw_W, base_W, millis(), CHARGE_TAPER_CELL_RELEASE_W_PER_MIN);
+  if (release.active && !was_active) {
+    logging.printf("Charge power tapering based on cell voltage engaged at %u mV\n", cell_mV);
+  } else if (!release.active && was_active) {
+    logging.printf("Charge power tapering based on cell voltage released at %u mV\n", cell_mV);
+  }
+  if (charge_W < limits.charge_W) {
+    apply_charge_taper(limits, charge_W);
+  }
+}
+
 /* Linear charge power taper over the top of the SOC window: full power at
    (100.00% - band), reaching 0W at 100.00% scaled SOC. Battery integration
    independent - operates on the installation's limits (installation_limits()),
@@ -198,11 +319,19 @@ static InstallationLimits installation_limits(void) {
    parallel raise, and BEFORE filter_inverter_limits() so the reduction passes
    through the low pass filter instantly (decrease path) while recovery after SOC
    falls back below the band gets the ramp. Independent from the low pass filter
-   setting - the user can enable none, either or both. */
+   setting - the user can enable none, either or both. With the taper set to
+   follow the cell voltage, filter_charge_taper_cell_voltage() runs instead. */
 static void filter_charge_taper_soc(void) {
   static bool taper_engaged_logged = false;
-  if (!charge_taper_soc || charge_taper_band_pptt == 0) {
+  if (!charge_taper_soc) {
     return;  // Datalayer values pass through untouched
+  }
+  if (charge_taper_mode == CHARGE_TAPER_ON_CELL_VOLTAGE) {
+    filter_charge_taper_cell_voltage();
+    return;
+  }
+  if (charge_taper_band_pptt == 0) {
+    return;
   }
   uint16_t soc = datalayer.aggregate.reported_soc;  // Computed earlier this cycle in update_aggregate_values()
   if (soc > 10000) {
@@ -214,20 +343,7 @@ static void filter_charge_taper_soc(void) {
   }
   if (soc >= (10000 - band)) {
     InstallationLimits limits = installation_limits();
-    uint32_t charge_W = limits.charge_W;
-
-    /* Apply the effective current cap (remote if active, otherwise user, same
-       precedence as update_calculated_values()) to the taper input, so the
-       band acts on the limit the inverter actually sees instead of on BMS
-       headroom above the cap. Idempotent with the same cap applied again in
-       filter_inverter_limits() and update_aggregate_limits(). */
-    const uint16_t voltage_dV = limits.voltage_dV;
-    if (voltage_dV > 10) {
-      uint32_t cap_W = current_cap_to_power_W(effective_charge_cap_dA(), voltage_dV);
-      if (charge_W > cap_W) {
-        charge_W = cap_W;
-      }
-    }
+    uint32_t charge_W = charge_taper_base_W(limits);
 
     uint32_t base_W = charge_W;  // Allowance entering the taper, after the user/remote cap
     // 64 bit: with several packs this can be their combined limit
@@ -245,18 +361,7 @@ static void filter_charge_taper_soc(void) {
       charge_W = charge_taper_floor_W;
     }
 
-    limits.charge_W = charge_W;
-
-    /* Pull the derived current limit down too, so current-based inverters are
-       covered when the low pass filter is disabled. min() only - the
-       user/remote/safety clamps already applied to the _dA field are never
-       raised. */
-    if (voltage_dV > 10) {
-      uint32_t charge_dA_from_power = (charge_W * 100) / voltage_dV;
-      if (charge_dA_from_power < limits.charge_dA) {
-        limits.charge_dA = (uint16_t)charge_dA_from_power;
-      }
-    }
+    apply_charge_taper(limits, charge_W);
 
     if (!taper_engaged_logged) {
       logging.printf("Charge power tapering based on SOC engaged at %.1f (real) %.1f (scaled)\n",
@@ -741,6 +846,10 @@ void setup() {
     if (!charge_taper_soc) {
       charge_taper_soc = true;
       logging.println("Charge power tapering based on SOC is mandatory for this battery type, enabling");
+    }
+    if (charge_taper_mode != CHARGE_TAPER_ON_SOC) {
+      charge_taper_mode = CHARGE_TAPER_ON_SOC;  // The mandatory taper is the SOC one, with the start limits below
+      logging.println("Charge power tapering must follow SOC for this battery type, cell voltage mode ignored");
     }
     if (charge_taper_band_pptt < 1500) {
       charge_taper_band_pptt = 1500;  // Start SOC capped at 85% for mandatory-taper batteries
