@@ -8,6 +8,10 @@ matching file from server (GitHub) and fills in a human-readable description for
   (the `GITHUB_RAW_BASE_URL` constant in
   [`Software/src/devboard/webserver/BatteryHtmlRenderer.h`](../../Software/src/devboard/webserver/BatteryHtmlRenderer.h)).
 - **Loader/renderer code:** `get_dtc_json_loader_html()` in the same header.
+- **Built-in copy:** on devices without `SMALL_FLASH_DEVICE`, every file the firmware sources
+  name is also embedded at build time by [`tools/embed_dtc_json.py`](../../tools/embed_dtc_json.py)
+  and served as `/dtc/<file>`. It is shown until GitHub answers, and stays when GitHub cannot be
+  reached. Nothing to commit: the copy is regenerated on every build.
 - **Validator:** [`tools/validate_dtc_json.py`](../../tools/validate_dtc_json.py).
 - **JSON Schema:** [`dtc.schema.json`](dtc.schema.json) (editor autocomplete / inline validation).
 
@@ -69,6 +73,10 @@ arr.forEach(function(e){ if (e.code != null) m[e.code] = e; if (e.dtc) m[e.dtc] 
 
 So a single file can mix entries keyed by decimal code, by string, or by both. A renderer that emits
 `data-dtc-code='41848'` matches by `code`; one that emits `data-dtc-code='P0C9500'` matches by `dtc`.
+
+**Base-code fallback.** When a cell holds a full 7-character SAE code (`[PCBU]` + 6 hex digits, e.g.
+`P1B1208`) and there is no exact entry for it, the loader retries with the 5-character base code
+(`P1B12`). One base-code entry therefore covers every failure-type byte.
 
 ### Rules and gotchas
 
