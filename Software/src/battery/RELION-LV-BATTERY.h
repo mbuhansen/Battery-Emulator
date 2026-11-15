@@ -26,7 +26,11 @@ class RelionBattery : public CanBattery {
   virtual void handle_incoming_can_frame(CAN_frame rx_frame);
   virtual void update_values();
   virtual void transmit_can(unsigned long currentMillis);
-  static constexpr const char* Name = "Relion LV protocol via 250kbps CAN";
+  static constexpr const char* Name = "Relion LV via CAN";
+
+  // Closes only while the inverter allows it. The pack gives no contactor feedback, so the
+  // reported state is the commanded one (see update_values)
+  bool reports_contactor_state() { return true; }
 
  private:
   DATALAYER_BATTERY_TYPE* datalayer_battery;
@@ -34,6 +38,7 @@ class RelionBattery : public CanBattery {
   uint16_t estimateSOCfromCellvoltage(uint16_t cellVoltage);
 
   bool* allows_contactor_closing;
+  bool contactors_commanded_closed = false;  // Last contactor command sent to the pack
 
   static const int MAX_PACK_VOLTAGE_DV = 584;  //58.4V recommended charge voltage. BMS protection steps in at 60.8V
   static const int MIN_PACK_VOLTAGE_DV = 440;  //44.0V Recommended LV disconnect. BMS protection steps in at 40.0V

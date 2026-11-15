@@ -65,7 +65,7 @@ Because a node is set up as its unit's *inverter*, it reports the same combined 
 | Current | Sum of all packs |
 | Total / remaining capacity | Sum of all packs |
 | SOC | Lowest joined pack, blending towards the fullest one above 90% |
-| SOH | Lowest pack that reports one |
+| SOH | Lowest pack that reports one (standard Battery Emulator behaviour; the controller then averages across nodes, see [Node Data Aggregation](#7-node-data-aggregation-to-inverter)) |
 | Max charge / discharge power | **Lowest** joined pack's limit (same rule the inverter gets without a node) |
 | Cell max/min, temperature max/min | Highest max / lowest min across the packs |
 | Design voltage max / min | Lowest max / highest min across the packs |
@@ -171,8 +171,8 @@ Carries no other payload — used only to signal that the controller is online.
 
 | Bytes | Type | Content |
 |-------|------|---------|
-| [0–1] | uint16 | Max charge power in Watts |
-| [2–3] | uint16 | Max discharge power in Watts |
+| [0–1] | uint16 | Max charge power ÷ 10 (10 W steps, rounded down; receiver ×10 → W) |
+| [2–3] | uint16 | Max discharge power ÷ 10 (10 W steps, rounded down; receiver ×10 → W) |
 | [4–5] | uint16 | `rem_word`: bit 15 = offline-balancing flag (`IU_NODE_REM_BALANCING_BIT`), bits 0–14 = remaining capacity ÷ 10 (10 Wh steps, receiver ×10 → Wh) |
 | [6] | int8 | Min temperature in °C |
 | [7] | uint8 | CRC |
@@ -218,7 +218,7 @@ Only sent if the node is connected to WiFi.
 |-------|------|---------|
 | [0–1] | uint16 | Firmware version: `(major << 8) | minor` — e.g. 10.6 = `0x0A06` |
 | [2–3] | uint16 | Battery type ID (`BatteryType` enum cast to uint16) |
-| [4] | uint8 | Protocol version (`IU_PROTOCOL_VERSION`, currently 3). The controller only accepts an IDENT carrying its own version, so a node on an older wire layout never verifies and its contactor stays open. |
+| [4] | uint8 | Protocol version (`IU_PROTOCOL_VERSION`, currently 4). The controller only accepts an IDENT carrying its own version, so a node on an older wire layout never verifies and its contactor stays open. |
 | [5–6] | — | Reserved (must be 0) |
 | [7] | uint8 | CRC |
 
@@ -243,16 +243,25 @@ When the counter reaches 0:
 - Contactor is **blocked**
 - Event `EVENT_BATTERY_NODE_MISSING` (WARNING) is raised
 
+On the node side, the controller heartbeat has its own, much shorter timeout: **15 seconds** (`IU_NODE_CONTROLLER_TIMEOUT_S`). When it runs out the node opens its contactor and raises `EVENT_CAN_CONTROLLER_MISSING`. See #3 for why it is timed this way.
+
 ---
 
-### 3. Stale Data Detection (Toggle Bit)
+### 3. Stale Data Detection (Toggle Bit) and Lost-Link Sequencing
 **Timeout:** 3 seconds (`IU_STATUS_STALE_SECONDS`)
 
 The STATUS message contains a toggle bit (bit 7) that flips on **every** frame.  
-The controller monitors whether bit 7 is changing. If it has not changed for 3 seconds the data is considered frozen (e.g. node software hung):
-- Contactor is **blocked**
-- Event `EVENT_BATTERY_NODE_STATUS_STALE` (WARNING) is raised
-- Automatically cleared when the toggle bit starts changing again
+The controller monitors whether bit 7 is changing. If it has not changed for 3 seconds the data is considered frozen (node software hung, or the CAN link to that node is broken). Event `EVENT_BATTERY_NODE_STATUS_STALE` (WARNING) is raised and the node is never newly allowed while stale.
+
+A stale node that was closed may still be on the DC bus, and if its link is broken it cannot receive commands. Both sides therefore follow fixed timings so the node opens at **no load**:
+
+| Time | Controller | Node |
+|------|------------|------|
+| stale > 3 s | Holds the **whole pack at 0 W** charge/discharge (inverter ramps down) | — |
+| 15 s | Commands the node OPEN (`IU_STALE_OPEN_SECONDS`) — reaches it if only its data froze | No heartbeat for 15 s → opens its own contactor (`IU_NODE_CONTROLLER_TIMEOUT_S`) |
+| stale > 20 s | Drops the node; the remaining nodes resume as N-1 (`IU_STALE_DROP_SECONDS`) | — |
+
+If the node's data recovers before 15 s it keeps its permission and the pack resumes with all nodes. Once the link is back after an open, the node rejoins through the normal voltage check.
 
 ---
 
@@ -312,8 +321,9 @@ How it works:
 
 If neither path can close the contactor (diff > 1.8 V, or the inverter is idle) the node remains blocked.
 
-The first node that comes online is used as the reference voltage and is always allowed.  
-All voltage checks are skipped during the startup grace period.
+The reference voltage is the DC bus itself: it is taken from a node that **reports its contactor closed** (`IU_FLAG_CONTACTOR_ENGAGED`) with fresh data — not from a node the controller has merely allowed, since an allowed node may not have closed. While another node is allowed but has not reported closed yet, further joins wait. A node that is sent ALLOW but does not report closed within 60 s has its permission revoked and must re-qualify (after a 60 s cool-down), so a stuck node cannot hold the others back. After 3 failed attempts in a row the node is left open instead of being cycled again (some packs, e.g. Tesla, do not tolerate repeated open/close well) until it goes offline or the controller restarts.  
+If no node is closed or closing, the node is the first one and is allowed directly.  
+All voltage checks are skipped during the startup grace period; when it ends, all online nodes at matching voltage are allowed together as before.
 
 > **Safety override order:** Voltage safety runs first (may allow), then stale detection, IDENT mismatch, and fault flags each run afterwards — so any blocking condition always has the final say over `contactor_allowed`.
 
@@ -337,6 +347,8 @@ The controller combines data from all online nodes whose contactor is actually *
 | Max design voltage | **Lowest** across all engaged nodes (protects against overcharge) |
 | Min design voltage | **Highest** across all engaged nodes (protects against over-discharge) |
 
+**Why SOH is averaged:** SOH is informational only. Nothing in the protection path uses it: power limits, design voltages and SOC already follow the weakest node, so a degraded pack is protected whatever SOH is reported. The inverter sees the whole installation as one battery, and an average describes that battery better than the weakest pack does. Reporting the minimum would make the whole bank look degraded because of one older pack. Each node's own SOH is still shown on the controller's web page.
+
 ---
 
 ### 8. Frame Integrity (CRC)
@@ -349,11 +361,23 @@ The receiver re-checks the CRC **before using any field** and drops a frame that
 
 CRC mismatches are counted and logged on each side.
 
-Because three node frames (STATUS/POWER/INFO) were already 8 bytes full, a few fields are packed tighter on the wire to free the CRC byte — SOC and SOH travel in 0.5% steps (1 byte), `remaining_Wh` in 10 Wh steps (15 bits, with the offline-balancing flag in bit 15). The receiver rescales these back to the internal 0.01%/Wh units, so aggregation and the web UI are unchanged.
+Because three node frames (STATUS/POWER/INFO) were already 8 bytes full, a few fields are packed tighter on the wire to free the CRC byte — SOC and SOH travel in 0.5% steps (1 byte), `remaining_Wh` in 10 Wh steps (15 bits, with the offline-balancing flag in bit 15), and since v4 the power limits in 10 W steps. The receiver rescales these back to the internal 0.01%/Wh units, so aggregation and the web UI are unchanged.
 
-> **Hard cutover:** the CRC is `IU_PROTOCOL_VERSION` 2; v3 moved capacity to 10 Wh steps and puts the protocol version in IDENT byte [4]. All units run the same firmware, so there is no mixed-version compatibility: a node on older (CRC-less) firmware fails every CRC check at the controller and stays offline, and a v2 node's IDENT is rejected by a v3 controller (and vice versa), so it is never verified and its contactor is never allowed. Flash the controller and all nodes together.
+> **Hard cutover:** the CRC is `IU_PROTOCOL_VERSION` 2; v3 moved capacity to 10 Wh steps and puts the protocol version in IDENT byte [4]; v4 moved the power limits to 10 W steps. All units run the same firmware, so there is no mixed-version compatibility: a node on older (CRC-less) firmware fails every CRC check at the controller and stays offline, and a node on an older protocol version has its IDENT rejected by the controller (and vice versa), so it is never verified and its contactor is never allowed. Flash the controller and all nodes together.
 
 This complements — and does not replace — the toggle-bit stale detection (#3): a CRC-valid frame can still carry frozen data, which only the toggle bit catches.
+
+---
+
+### 9. Contactor Command Must Be Followed
+
+Everything above relies on the node actually opening and closing its contactor when the controller says so, and reporting back when it is closed. Two layers make sure of that.
+
+**On the node — capability gate.** Each pack on the node must either use GPIO contactor control for its slot, or run a battery protocol that declares `reports_contactor_state()`: it closes its contactors over CAN only while `inverter_allows_contactor_closing` is set, and reports the result in `contactors_engaged`. Protocols declaring this today: BMW i3, Tesla Model 3/Y and Model S/X (`BMS_contactorState`; not the separate "Tesla Model S/X 2012-2020" protocol), Stellantis Pro One (0x150 contactor status) and Relion LV (commanded state, the pack has no feedback). Any other protocol can be added once it does both. If a pack does not qualify, the node raises `EVENT_NODE_CONTACTOR_UNSUPPORTED` (ERROR) and reports `IU_FAULT_CONTACTOR_FAILED`, so the controller never allows it.
+
+Only `contactors_engaged == 1` (closed) is reported as engaged — not a fault-latched open contactor or a running precharge — since the controller uses it as the DC bus reference.
+
+**On the controller — obedience check.** Once a node has had 10 s to act on an OPEN command, it must not report its contactor closed or carry more than 2 A. If it does for 5 s, `EVENT_BATTERY_NODE_CONTACTOR_DISOBEYED` (WARNING) is raised and the whole pack is held at 0 W until it opens — that pack sits on the bus uncontrolled and outside the aggregation. This also catches a protocol that is declared but does not behave.
 
 ---
 

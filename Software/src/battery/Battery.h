@@ -62,7 +62,9 @@ enum class BatteryType {
   VAGMqbEvo = 55,
   Akasol = 56,
   GrowattLv = 57,
-  InterUnitController = 58,  // This node acts as Controller in a multi-unit setup
+  StellantisProOne = 58,
+  BYDBatteryBoxPremium = 59,
+  InterUnitController = 60,  // This node acts as Controller in a multi-unit setup
   Highest
 };
 
@@ -109,13 +111,21 @@ class Battery {
   virtual bool supports_calibrate_SOC() { return false; }
   virtual bool supports_contactor_close() { return false; }
   virtual bool supports_contactor_reset() { return false; }
+  /* True if the driver closes the pack's contactors (over CAN) only while
+     datalayer.system.status.inverter_allows_contactor_closing is set, opens them when it is cleared,
+     and reports the resulting state in datalayer.system.status.contactors_engaged (1 = closed).
+     A battery node without GPIO contactor control needs this, so the controller decides when the
+     pack joins the shared DC bus. Declare it only once both halves are in place. */
+  virtual bool reports_contactor_state() { return false; }
   virtual bool supports_manual_balancing() { return false; }
   virtual bool supports_real_BMS_status() { return false; }
   virtual bool supports_toggle_SOC_method() { return false; }
   virtual bool supports_energy_saving_mode_reset() { return false; }
   virtual bool supports_factory_mode_method() { return false; }
+#ifndef SMALL_FLASH_DEVICE
   virtual bool supports_chademo_restart() { return false; }
   virtual bool supports_chademo_stop() { return false; }
+#endif  // SMALL_FLASH_DEVICE
   virtual bool supports_balancing() { return false; }
   virtual bool is_balancing_active() { return false; }
   virtual const char* get_balancing_state_string() { return nullptr; }
@@ -143,8 +153,10 @@ class Battery {
   virtual void toggle_SOC_method() {}
   virtual void reset_energy_saving_mode() {}
   virtual void set_factory_mode() {}
+#ifndef SMALL_FLASH_DEVICE
   virtual void chademo_restart() {}
   virtual void chademo_stop() {}
+#endif  // SMALL_FLASH_DEVICE
   virtual void initiate_balancing() {}
   virtual void end_balancing() {}
   virtual void handle_precharge() {}

@@ -17,7 +17,7 @@
  *
  * On contactor command received: updates contactor_allowed in datalayer.
  *
- * Safety: if no heartbeat received for CAN_STILL_ALIVE seconds (60s),
+ * Safety: if no heartbeat received for IU_NODE_CONTROLLER_TIMEOUT_S seconds (15s),
  *         node opens its own contactors (controller is offline).
  */
 class BatteryNodeCan : public CanReceiver, public Transmitter {
@@ -26,7 +26,7 @@ class BatteryNodeCan : public CanReceiver, public Transmitter {
   void receive_can_frame(CAN_frame* rx_frame) override;
   void transmit(unsigned long currentMillis) override;
 
-  /** True if the controller has been heard from within the last CAN_STILL_ALIVE seconds (60s) */
+  /** True if the controller has been heard from within the last IU_NODE_CONTROLLER_TIMEOUT_S seconds (15s) */
   bool controller_online() const { return _controller_online; }
 
  private:
@@ -47,5 +47,8 @@ class BatteryNodeCan : public CanReceiver, public Transmitter {
 
 extern BatteryNodeCan battery_node_can;
 void setup_battery_node_can();
+/** True if every pack on this node follows the controller's contactor command: GPIO contactor
+ *  control for its slot, or a driver with Battery::reports_contactor_state(). */
+bool node_contactors_controllable();
 
 #endif  // _BATTERY_NODE_CAN_H_

@@ -6,6 +6,7 @@
 #include "../../battery/BATTERIES.h"
 #include "../../battery/Battery.h"
 #include "../../communication/Transmitter.h"
+#include "../../communication/contactorcontrol/comm_contactorcontrol.h"
 #include "../../datalayer/datalayer.h"
 #include "../../devboard/utils/events.h"
 #include "../../devboard/utils/logging.h"
@@ -58,7 +59,10 @@ void BatteryNodeCan::receive_can_frame(CAN_frame* rx_frame) {
     _last_heartbeat_ms = now;
     _controller_online = true;
     datalayer.system.status.controller_online = true;
-    datalayer.system.status.CAN_controller_still_alive = CAN_STILL_ALIVE;  // Reset watchdog
+    // Reset watchdog. Deliberately much shorter than CAN_STILL_ALIVE: on a lost link the controller
+    // has already driven the pack to 0 W, and we must open before it lets the others resume
+    // (see "Lost-link sequencing" in INTER-UNIT-PROTOCOL.h).
+    datalayer.system.status.CAN_controller_still_alive = IU_NODE_CONTROLLER_TIMEOUT_S;
     _heartbeat_count++;
 
     // Schedule reply after (node_id * 5ms) to avoid CAN collisions
@@ -160,11 +164,34 @@ uint8_t BatteryNodeCan::build_fault_flags() {
       (battery3 && datalayer.battery3.status.CAN_battery_still_alive == 0)) {
     flags |= IU_FAULT_BATTERY_TIMEOUT;
   }
-  // Contactor engaged confirmation
-  if (datalayer.system.status.contactors_engaged != 0) {
+  // The controller decides when this node joins the DC bus, so every pack here must actually
+  // follow the contactor command. If one cannot, report a contactor fault: the controller then
+  // never allows this node (IU_FAULT_CONTACTOR_FAILED is in IU_FAULT_ERROR_MASK).
+  if (!node_contactors_controllable()) {
+    set_event(EVENT_NODE_CONTACTOR_UNSUPPORTED, 0);
+    flags |= IU_FAULT_CONTACTOR_FAILED;
+  }
+  // Contactor engaged confirmation: only CLOSED (1). Not 2 (opened and latched after a fault) or
+  // 3 (precharge still running) — the controller uses this as the DC bus reference for joins.
+  if (datalayer.system.status.contactors_engaged == 1) {
     flags |= IU_FLAG_CONTACTOR_ENGAGED;
   }
   return flags;
+}
+
+bool node_contactors_controllable() {
+  // Each pack needs either GPIO contactor control for its slot, or a driver that closes over CAN
+  // only on command and reports the resulting state (Battery::reports_contactor_state()).
+  if (battery == nullptr || !(contactor_control_enabled || battery->reports_contactor_state())) {
+    return false;
+  }
+  if (battery2 && !(contactor_control_enabled_double_battery || battery2->reports_contactor_state())) {
+    return false;
+  }
+  if (battery3 && !(contactor_control_enabled_triple_battery || battery3->reports_contactor_state())) {
+    return false;
+  }
+  return true;
 }
 
 void BatteryNodeCan::send_status_frame() {
@@ -210,14 +237,16 @@ void BatteryNodeCan::send_power_frame() {
   frame.DLC = 8;
   frame.ext_ID = false;
 
-  // Clamp power values to uint16_t range
-  uint16_t max_chg = (agg.max_charge_power_W > 65535u) ? 65535u : (uint16_t)agg.max_charge_power_W;
-  uint16_t max_dch = (agg.max_discharge_power_W > 65535u) ? 65535u : (uint16_t)agg.max_discharge_power_W;
+  // Power limits travel in 10 W steps, rounded down (never over-report) and clamped to uint16_t
+  const uint32_t chg_wire = agg.max_charge_power_W / IU_POWER_W_WIRE_SCALE;
+  const uint32_t dch_wire = agg.max_discharge_power_W / IU_POWER_W_WIRE_SCALE;
+  uint16_t max_chg = (chg_wire > 65535u) ? 65535u : (uint16_t)chg_wire;
+  uint16_t max_dch = (dch_wire > 65535u) ? 65535u : (uint16_t)dch_wire;
 
-  // [0..1] max_charge_W
+  // [0..1] max_charge_W / 10
   frame.data.u8[0] = (max_chg >> 8) & 0xFF;
   frame.data.u8[1] = max_chg & 0xFF;
-  // [2..3] max_discharge_W
+  // [2..3] max_discharge_W / 10
   frame.data.u8[2] = (max_dch >> 8) & 0xFF;
   frame.data.u8[3] = max_dch & 0xFF;
   // [4..5] rem_word: bits0..14 = remaining_Wh in 10 Wh steps, bit15 = offline-balancing flag.
