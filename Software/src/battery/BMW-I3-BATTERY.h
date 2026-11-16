@@ -34,9 +34,9 @@ class BmwI3Battery : public CanBattery {
   static constexpr const char* Name = "BMW i3";
 
   bool supports_balancing() { return true; }
-  bool is_balancing_active() { return UserRequestBalancing != NONE; }
+  bool is_balancing_active() { return shutdown_state() != NONE; }
   const char* get_balancing_state_string() {
-    switch (UserRequestBalancing) {
+    switch (shutdown_state()) {
       case NONE:
         return "None";
       case REQUESTED:
@@ -82,7 +82,7 @@ class BmwI3Battery : public CanBattery {
   // Status cold shutoff valve, 0 OK, 1 Short circuit to GND, 2 Short circuit to 12V, 3 Line break, 6 Driver error, 12 Stuck, 13 Stuck, 15 Invalid Signal
   uint8_t ST_cold_shutoff_valve() { return battery_status_cold_shutoff_valve; }
   // Status balancing
-  uint8_t ST_balancing_status() { return UserRequestBalancing; }
+  uint8_t ST_balancing_status() { return shutdown_state(); }
   // Charge-abort request from the battery via 0x431 RQ_ABRT_CHGNG
   const char* get_abort_charging_string() {
     switch (battery_request_abort_charging) {
@@ -110,6 +110,19 @@ class BmwI3Battery : public CanBattery {
   bool UserRequestDTCreset = false;
   enum BalancingState { NONE, REQUESTED, STARTING, EXECUTING };
   BalancingState UserRequestBalancing = NONE;
+
+  // Sleep on inverter open: once the contactors have been engaged and the inverter then withdraws
+  // its close request, run the same shutdown sequence as balancing so the SME really goes to sleep
+  // (an awake SME with open contactors can latch "Error precharge blocked"). When the inverter allows
+  // closing again, the battery is woken up and does a fresh startup. It is shown as balancing in the UI
+  // (the battery balances by itself while asleep if needed). Unlike user balancing, the last battery
+  // values and power limits are kept, and no balancing start/end events are raised.
+  BalancingState InverterSleep = NONE;
+  bool engaged_since_wake = false;
+  void end_inverter_sleep();
+  // Shutdown sequence state, user balancing takes priority over inverter sleep
+  BalancingState shutdown_state() const { return UserRequestBalancing != NONE ? UserRequestBalancing : InverterSleep; }
+  void handle_inverter_sleep();
   unsigned long UserRequestBalancingMillis = 0;
 
   const int MAX_CELL_VOLTAGE_60AH = 4110;   // Battery is put into emergency stop if one cell goes over this value

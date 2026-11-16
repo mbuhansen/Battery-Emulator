@@ -6,6 +6,7 @@
 #include "../datalayer/datalayer_extended.h"
 #include "../devboard/utils/common_functions.h"  //For CRC table
 #include "../devboard/utils/events.h"
+#include "../devboard/utils/logging.h"
 
 /* Do not change code below unless you are sure what you are doing */
 
@@ -26,12 +27,16 @@ uint8_t BmwI3Battery::increment_alive_counter(uint8_t counter) {
 }
 
 void BmwI3Battery::initiate_balancing() {
+  if (InverterSleep != NONE) {
+    return;  // Already in the same shutdown/balancing state (inverter sleep), don't start over
+  }
   UserRequestBalancing = REQUESTED;
   UserRequestBalancingMillis = millis();
 }
 
 void BmwI3Battery::end_balancing() {
   UserRequestBalancing = NONE;
+  InverterSleep = NONE;  // Ending from the UI also wakes a battery put to sleep by the inverter
   UserRequestBalancingMillis = 0;
   balancing_mode_active = false;
   can_communication_stopped = false;
@@ -41,11 +46,47 @@ void BmwI3Battery::end_balancing() {
   set_event(EVENT_BALANCING_END, 0, battery_index);
 }
 
+void BmwI3Battery::end_inverter_sleep() {
+  InverterSleep = NONE;
+  balancing_mode_active = false;
+  can_communication_stopped = false;
+  BMW_12F.data.u8[3] = BMW_12F_BYTE3_ACTIVE;  // Restore active state
+  cmdState = SOC;
+  battery_info_available = false;
+  startup_counter_contactor = 0;  // Fresh startup: hold contactors open briefly after wakeup, as at boot
+  logging.println("[BMW i3] Inverter allows closing again, waking up battery");
+}
+
+// Put the battery to sleep when the inverter opens the contactors after the battery has been in
+// operation, and wake it up again when the inverter allows closing. At normal startup the inverter
+// does not allow closing yet, and the battery has not been engaged, so nothing happens then.
+void BmwI3Battery::handle_inverter_sleep() {
+  bool inverter_allows_close = datalayer.system.status.inverter_allows_contactor_closing;
+
+  if (UserRequestBalancing != NONE) {
+    engaged_since_wake = false;  // User balancing is running, it wakes the battery when it ends
+    return;
+  }
+
+  if (InverterSleep == NONE) {
+    if (battery_awake && battery_status_disconnecting_switch == 2) {
+      engaged_since_wake = true;  // Battery is in operation
+    }
+    if (engaged_since_wake && !inverter_allows_close) {
+      InverterSleep = REQUESTED;
+      engaged_since_wake = false;
+      logging.println("[BMW i3] Inverter opened contactors, putting battery to sleep");
+    }
+  } else if (inverter_allows_close) {
+    end_inverter_sleep();
+  }
+}
+
 void BmwI3Battery::update_values() {  //This function maps all the values fetched via CAN to the battery datalayer
   if (contactor_recovery_force_wakeup_low) {
     digitalWrite(wakeup_pin, LOW);  // Contactor watchdog recovery: pulse wakeup low to reset precharge latch
-  } else if (datalayer.system.info.equipment_stop_active == true || UserRequestBalancing == STARTING ||
-             UserRequestBalancing == EXECUTING) {
+  } else if (datalayer.system.info.equipment_stop_active == true || shutdown_state() == STARTING ||
+             shutdown_state() == EXECUTING) {
     digitalWrite(wakeup_pin, LOW);         // Turn off wakeup pin
   } else if (millis64() > INTERVAL_1_S) {  // millis64: plain millis() wraps after 49.7 days
     digitalWrite(wakeup_pin, HIGH);        // Wake up the battery
@@ -56,15 +97,19 @@ void BmwI3Battery::update_values() {  //This function maps all the values fetche
   if (UserRequestBalancing == EXECUTING) {
     datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
     datalayer.system.status.system_status = STANDBY;
-    // During balancing sleep, report contactors as open so an old engaged state is not latched.
+  }
+  if (shutdown_state() == EXECUTING) {
+    datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+    // During balancing / inverter sleep, report contactors as open so an old engaged state is not latched.
     datalayer.system.status.contactors_engaged = 0;
     if (!contactor_control_enabled) {
       datalayer.system.status.dc_bus_live = false;
     }
   }
 
-  // Map internal balancing state to datalayer balancing_status
-  if (UserRequestBalancing == NONE) {
+  // Map internal balancing state to datalayer balancing_status (inverter sleep is the same shutdown state,
+  // the battery balances by itself while asleep if it needs to)
+  if (shutdown_state() == NONE) {
     datalayer_battery->status.balancing_status = BALANCING_STATUS_READY;
   } else {
     datalayer_battery->status.balancing_status = BALANCING_STATUS_ACTIVE;
@@ -158,7 +203,7 @@ void BmwI3Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
   switch (rx_frame.ID) {
     case 0x112:  //BMS [10ms] Status Of High-Voltage Battery - 2
       // Set to true unless balancing is going on and battery is supposed to go to sleep
-      battery_awake = UserRequestBalancing != EXECUTING;
+      battery_awake = shutdown_state() != EXECUTING;
       datalayer_battery->status.CAN_battery_still_alive =
           CAN_STILL_ALIVE;  //This message is only sent if 30C (Wakeup pin on battery) is energized with 12V
       battery_current = (rx_frame.data.u8[1] << 8 | rx_frame.data.u8[0]) - 8192;  //deciAmps (-819.2 to 819.0A)
@@ -204,7 +249,7 @@ void BmwI3Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
       break;
     case 0x2BD:  //BMS [100ms] Status diagnosis high voltage - 1
       // Set to true unless balancing is going on and battery is supposed to go to sleep
-      battery_awake = UserRequestBalancing != EXECUTING;
+      battery_awake = shutdown_state() != EXECUTING;
       if (!skipCRCCheck) {
         if (calculateCRC(rx_frame, rx_frame.DLC, 0x15) != rx_frame.data.u8[0]) {
           // If calculated CRC does not match transmitted CRC, increase CANerror counter
@@ -232,7 +277,7 @@ void BmwI3Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
       break;
     case 0x2FF:  //BMS [100ms] Status Heating High-Voltage Battery
       // Set to true unless balancing is going on and battery is supposed to go to sleep
-      battery_awake = UserRequestBalancing != EXECUTING;
+      battery_awake = shutdown_state() != EXECUTING;
       battery_actual_value_power_heating = (rx_frame.data.u8[1] << 4 | rx_frame.data.u8[0] >> 4);
       break;
     case 0x363:  //BMS [1s] Identification High-Voltage Battery
@@ -369,8 +414,8 @@ const char* BmwI3Battery::get_contactor_watchdog_string() {
 // pulse the wakeup pin low while sending an open command on CAN, then wakeup high and resume
 // the close command. This power-cycle resets the battery's precharge error latch.
 void BmwI3Battery::monitor_contactor_engagement(unsigned long currentMillis) {
-  // Contactors are intentionally open during balancing - disarm the watchdog.
-  if (UserRequestBalancing != NONE) {
+  // Contactors are intentionally open during balancing / inverter sleep - disarm the watchdog.
+  if (shutdown_state() != NONE) {
     cw_state = CW_MONITOR;
     cw_close_request_start = 0;
     cw_recovery_attempts = 0;
@@ -462,12 +507,14 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
   // t=0s:   0x12F byte3 begins sequence DD->6D->5D->5C->4C->3C->2C->1C->1A (~5s)
   // t=54s:  0x10B contactor opens (byte1 high nibble 1->0)
   // t=96s:  All CAN communication stops (battery goes to sleep)
-  if (UserRequestBalancing != NONE && !balancing_mode_active) {
+  // The same sequence is used when the inverter opens the contactors after operation (inverter sleep).
+  handle_inverter_sleep();
+  if (shutdown_state() != NONE && !balancing_mode_active) {
     balancing_mode_active = true;
     balancing_start_time = currentMillis;
     can_communication_stopped = false;
     cmdState = OFF;
-  } else if (UserRequestBalancing == NONE && balancing_mode_active) {
+  } else if (shutdown_state() == NONE && balancing_mode_active) {
     // Resume: already handled in end_balancing(), just ensure flags are consistent
     balancing_mode_active = false;
     can_communication_stopped = false;
@@ -487,12 +534,15 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
     }
 
     // Transition states based on elapsed time
-    if (UserRequestBalancing == REQUESTED && elapsed_time >= 20000) {
-      UserRequestBalancing = STARTING;
+    BalancingState& sequence_state = (UserRequestBalancing != NONE) ? UserRequestBalancing : InverterSleep;
+    if (sequence_state == REQUESTED && elapsed_time >= 20000) {
+      sequence_state = STARTING;
     }
-    if (UserRequestBalancing == STARTING && elapsed_time >= INTERVAL_30_S) {
-      UserRequestBalancing = EXECUTING;
-      set_event(EVENT_BALANCING_START, 0, battery_index);
+    if (sequence_state == STARTING && elapsed_time >= INTERVAL_30_S) {
+      sequence_state = EXECUTING;
+      if (UserRequestBalancing != NONE) {
+        set_event(EVENT_BALANCING_START, 0, battery_index);
+      }
     }
 
     // Stop all CAN communication after ~96s (battery sleeps), ~42s after contactors open
@@ -520,8 +570,9 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
 
       // Contactor control: open ~54 seconds after balancing start (charge-finished signal)
       // Until then, contactors stay closed (matches real car discharge log)
-      bool contactors_should_open =
-          balancing_mode_active && (currentMillis - balancing_start_time >= BALANCING_CONTACTOR_DELAY_MS);
+      // During inverter sleep the inverter has already opened them (handled by the last branch below).
+      bool contactors_should_open = balancing_mode_active && UserRequestBalancing != NONE &&
+                                    (currentMillis - balancing_start_time >= BALANCING_CONTACTOR_DELAY_MS);
 
       if (contactors_should_open) {
         BMW_10B.data.u8[1] = 0x00;  // Open contactors - balancing shutdown sequence
