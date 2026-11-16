@@ -399,7 +399,8 @@ class BmwI3Battery : public CanBattery {
   // Contactor-engagement watchdog: recovers the battery when it latches "Error precharge
   // blocked" and refuses to engage despite a close command. After CONTACTOR_ENGAGE_TIMEOUT_MS
   // without "engaged", it pulses wakeup low (sending open on CAN), then wakeup high and
-  // resumes the close command. Limited to MAX_CONTACTOR_RECOVERY_ATTEMPTS attempts.
+  // resumes the close command. Limited to MAX_CONTACTOR_RECOVERY_ATTEMPTS attempts. If the first attempt
+  // does not help, the battery DTCs are cleared before the second attempt.
   enum ContactorWatchdogState { CW_MONITOR, CW_RECOVERY_OPEN_LOW };
   ContactorWatchdogState cw_state = CW_MONITOR;
   unsigned long cw_close_request_start = 0;   // when the current un-engaged close began
