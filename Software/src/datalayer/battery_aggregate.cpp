@@ -87,7 +87,9 @@ void scale_pack_values(DATALAYER_BATTERY_TYPE& pack) {
   }
   pack.status.reported_soc = scaled_soc;
 
-  if (pack.info.total_capacity_Wh > 0 && pack.status.real_soc > 0) {
+  // Capacity is not scaled when min_percentage is negative: the usable window then extends below the
+  // battery's real 0%, which would inflate the reported capacity beyond what is physically stored.
+  if (pack.info.total_capacity_Wh > 0 && pack.status.real_soc > 0 && datalayer.battery_settings.min_percentage >= 0) {
     int32_t scaled_total_capacity = (pack.info.total_capacity_Wh * delta_pct) / 10000;
     pack.info.reported_total_capacity_Wh = scaled_total_capacity;
     pack.status.reported_remaining_capacity_Wh = (scaled_total_capacity * scaled_soc) / 10000;
@@ -116,7 +118,7 @@ static void apply_soc_window(DATALAYER_AGGREGATE_TYPE& agg) {
   }
   agg.reported_soc = scaled_soc;
 
-  if (agg.total_capacity_Wh > 0) {
+  if (agg.total_capacity_Wh > 0 && datalayer.battery_settings.min_percentage >= 0) {  // Not when MinSoc < 0, see above
     agg.reported_total_capacity_Wh = ((uint64_t)agg.total_capacity_Wh * delta_pct) / 10000;
     agg.reported_remaining_capacity_Wh = ((uint64_t)agg.reported_total_capacity_Wh * scaled_soc) / 10000;
   } else {

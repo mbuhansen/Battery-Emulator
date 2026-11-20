@@ -3,6 +3,8 @@
 #include <stdint.h>
 #include "Rs485InverterProtocol.h"
 
+#define SECONDARY_CONTACTOR_PIN 33
+
 class KostalInverterProtocol : public Rs485InverterProtocol {
  public:
   const char* name() override { return Name; }
@@ -21,7 +23,6 @@ class KostalInverterProtocol : public Rs485InverterProtocol {
 
   const uint8_t KOSTAL_FRAMEHEADER[5] = {0x62, 0xFF, 0x02, 0xFF, 0x29};
   const uint8_t KOSTAL_FRAMEHEADER2[5] = {0x63, 0xFF, 0x02, 0xFF, 0x29};
-  uint16_t nominal_voltage_dV = 0;
   int16_t average_temperature_dC = 0;
   uint8_t incoming_message_counter = RS485_HEALTHY;
   bool inverter_detected = false;
@@ -31,8 +32,10 @@ class KostalInverterProtocol : public Rs485InverterProtocol {
   unsigned long currentMillis;
   unsigned long startupMillis = 0;
   unsigned long contactorMillis = 0;
-  unsigned long contactortestTimerStart = 0;
-  bool contactortestTimerActive = false;
+  unsigned long contactorcloseTimerStart = 0;
+  bool contactorcloseTimerActive = false;
+  unsigned long startupTimerStart = 0;
+  bool startupTimerActive = false;
 
   uint16_t rx_index = 0;
   bool RX_allow = false;
@@ -46,21 +49,36 @@ class KostalInverterProtocol : public Rs485InverterProtocol {
 uint8_t BATTERY_INFO[40] = {
     0x00,                         // First zero byte pointer
     0xE2, 0xFF, 0x02, 0xFF, 0x29, // Frame header
-    0x00, 0x00, 0x80, 0x43,       // 256.063 Nominal voltage / 5*51.2=256
-    0xE4, 0x70, 0x8A, 0x5C,       // Manufacture date (Epoch time) (BYD: GetBatteryInfo this[0x10ac])
-    0xB5, 0x00, 0xD3, 0x00,       // Battery Serial number? Modbus register 527 - 0x10b0
-    0x00, 0x00, 0xC8, 0x41,       // Nominal Capacity (0x10b4)
-    0xC2, 0x18,                   // Battery Firmware, modbus register 586  (0x10b8)
-    0x00,                         // (BYD: GetBatteryInfo this[0x10ba])
+    // NOTE: This is the UNSTUFFED frame. null_stuffer() inserts the COBS pointers
+    // when the frame is sent, so all real 0x00 bytes must be kept as 0x00 here.
+    0x33, 0x33, 0xAF, 0x43,       // Max Voltage (overwritten in update_values)
+    0x00, 0x00, 0xD8, 0x56,       // Manufacture date (Epoch time) (BYD: GetBatteryInfo this[0x10ac])
+    0xF5, 0x42, 0x45, 0x06,       // Battery Serial number, confirmed: read back as BMS Serial Number
+    0x00, 0x00, 0xC8, 0x41,       // Nominal Capacity, Ah (float32) (0x10b4)
+                                  //   Inverter reports Nameplate Energy = this * info Max Voltage
+    0x1A, 0x03,                   // Battery Firmware, modbus register 586 / 0x24A, U32 (0x10b8)
+                                  //   Confirmed read back by the inverter as 794. Read as minor
+                                  //   then major that is 3.26, matching the 3.22 and 3.24 that
+                                  //   BYD packs are seen reporting elsewhere.
+    0x01,                         // (BYD: GetBatteryInfo this[0x10ba])
     0x00,                         // ?
     0x59, 0x42,                   // Vendor identifier
                                   //       0x59 0x42 -> 'YB' -> BYD
                                   //       0x59 0x44 -> 'YD' -> Dyness
     0x00, 0x00,                   // (BYD: GetBatteryInfo this[0x10be])
-    0x00, 0x00,
-    0x05, 0x00,                   // Number of blocks in series (uint16)
-    0xA0, 0x00, 0x00, 0x00,
-    0x4D, // CRC
+    0x09, 0x00,                   // Battery Model ID (uint16), confirmed: read back as sent.
+                                  //   9 = HVM 19.3 (280-403 V, 50 A), the label entry closest
+                                  //   to the emulated pack. Identification only - it does not
+                                  //   clamp voltage or current, see KOSTAL-RS485-NOTES.md.
+    0x07, 0x00,                   // Number of blocks in series (uint16)
+                                  //   7 = the module count of an HVM 19.3, matching the
+                                  //   model id above. The reference HVS 7.7 log sent 3.
+    0xA0,                         // ?
+    0x64,                         // State of Health, % (uint8), confirmed by probing 35-37
+                                  //   with 100/80/60: the inverter read back 100.
+                                  //   Overwritten in update_values()
+    0x50, 0x3C,                   // ?
+    0x89, // CRC
     0x00};
   // clang-format on
 

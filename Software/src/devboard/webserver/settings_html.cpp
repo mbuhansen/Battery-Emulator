@@ -378,6 +378,12 @@ String settings_processor(const String& var, BatteryEmulatorSettingsStore& setti
     uint32_t mode = settings.getUInt("BMWI3SOCHAVR", 0);
     return options_from_map(mode > 2 ? 0 : mode, bmw_i3_soc_havrla_modes);
   }
+
+  if (var == "BMWI3ENDCHGW") {
+    // Out-of-range values boot as 1000 W (see init_stored_settings()), so show them that way.
+    uint32_t power_W = settings.getUInt("BMWI3ENDCHGW", 1000);
+    return String((power_W < 100 || power_W > 5000) ? 1000 : power_W);
+  }
 #endif  // SMALL_FLASH_DEVICE
 
   if (var == "EQSTOP") {
@@ -1219,6 +1225,10 @@ String raw_settings_processor(const String& var, BatteryEmulatorSettingsStore& s
     return String(settings.getUInt("DALYPWR0C", 800));
   }
 
+  if (var == "SLAVENODEID") {
+    return String(settings.getUInt("SLAVENODEID", 1));
+  }
+
   if (var == "FOXESSTYPE") {
     return String(settings.getUInt("FOXESSTYPE", 0));
   }
@@ -1489,7 +1499,7 @@ String qnhck_zero_text(uint16_t zero_mV) {
 #endif  // SMALL_FLASH_DEVICE
 
 #ifndef SMALL_FLASH_DEVICE
-// BMW i3 SOC Havrla selector, left out on small flash devices together with the calculation
+// BMW i3 SOC Havrla selector and end-of-charge power, left out on small flash devices together with the calculation
 #define BMWI3_SOCHAVR_SETTING_HTML \
   R"rawliteral(
         <div class="if-bmw-i3">
@@ -1498,6 +1508,12 @@ String qnhck_zero_text(uint16_t zero_mV) {
             title="Voltage-based SOC with internal resistance correction">
           %BMWI3SOCHAVR%
           </select>
+        </div>
+        <div class="if-bmw-i3">
+          <label for='BMWI3ENDCHGW'>End-of-charge power, watt: </label>
+          <input type='number' name='BMWI3ENDCHGW' id='BMWI3ENDCHGW' value="%BMWI3ENDCHGW%"
+            min="100" max="5000" step="1"
+            title="Charge power the highest cell voltage ramp ends at near full (about 400 W = 1 A)" />
         </div>
 )rawliteral"
 #else
@@ -1696,8 +1712,20 @@ String qnhck_zero_text(uint16_t zero_mV) {
 
     form .if-battery, form .if-inverter, form .if-shunt { display: contents; }
     form[data-battery="0"] .if-battery { display: none; }
-    form[data-inverter="0"] .if-inverter { display: none; }    
+    form[data-battery="60"] .if-battery { display: none; }
+
+    /* Battery/controller CAN interface select: shown for every battery type except None.
+       The Inter-Unit Controller (60) also uses can_config.battery (BATTCOMM). */
+    form .if-batt-iface { display: contents; }
+    form[data-battery="0"] .if-batt-iface { display: none; }
+    form[data-inverter="0"] .if-inverter { display: none; }
+    /* Inter-Unit Node (26) uses the same "Inverter interface" (INVCOMM) select as a
+       normal inverter, so it stays shown. A separate duplicate select would submit a
+       second INVCOMM value and overwrite the choice (falling back to CAN Native). */
     form[data-shunttype="0"] .if-shunt { display: none; }
+
+    form .if-not-inter-controller { display: contents; }
+    form[data-battery="60"] .if-not-inter-controller { display: none; }
 
     /* Shunt types the selected battery/inverter can't use.
        Rules are generated at runtime from the shunt capability predicates. */
@@ -1808,6 +1836,11 @@ String qnhck_zero_text(uint16_t zero_mV) {
       display: contents;
     }
 
+    form .if-inter-node { display: none; }
+    form[data-inverter="26"] .if-inter-node {
+      display: contents;
+    }
+
     form .if-perbmsreset { display: none; }
     form[data-perbmsreset="true"] .if-perbmsreset {
       display: contents;
@@ -1914,10 +1947,11 @@ String qnhck_zero_text(uint16_t zero_mV) {
     </style>
 )rawliteral"
 
-#define SETTINGS_HTML_BODY          \
+#define SETTINGS_HTML_BODY                                                                               \
   R"rawliteral(
-  )rawliteral" INDEX_HTML_NAV_START \
-  R"rawliteral(<button onclick="askFactoryReset()">Factory reset</button>)rawliteral" INDEX_HTML_NAV_END R"rawliteral(
+  )rawliteral" INDEX_HTML_NAV_START                                                                      \
+  R"rawliteral(<button onclick="askFactoryReset()">Factory reset</button>)rawliteral" INDEX_HTML_NAV_END \
+  R"rawliteral(
 
   <script>
   function validateWebAuthPassword() {
@@ -2173,11 +2207,13 @@ String qnhck_zero_text(uint16_t zero_mV) {
         <input type='checkbox' name='CHGESTIMATED' value='on' %CHGESTIMATED% />
         </div>
 
-        <div class="if-battery">
+        <div class="if-batt-iface">
         <label for='BATTCOMM'>Battery interface: </label><select name='BATTCOMM' id='BATTCOMM'>
         %BATTCOMM%
         </select>
+        </div>
 
+        <div class="if-battery">
         <div class="if-nissan">
             <label for='CHGSTARQ'>Balancing strategy: </label>
             <select name='CHGSTARQ' id='CHGSTARQ'>
@@ -2268,9 +2304,16 @@ String qnhck_zero_text(uint16_t zero_mV) {
         %INVTYPE%
         </select>
 
-        <div class="if-inverter">        
-        <label>Inverter interface: </label><select name='INVCOMM'>
-        %INVCOMM%     
+        <div class="if-inter-node">
+        <label for='SLAVENODEID'>Battery node ID (1-24): </label>
+        <input type='number' id='SLAVENODEID' name='SLAVENODEID' value='%SLAVENODEID%'
+        min='1' max='24' step='1'
+        title="Unique ID for this battery node. Each node must have a different ID (1-24)." />
+        </div>
+
+        <div class="if-inverter">
+        <label for='INVCOMM'>Inverter interface: </label><select name='INVCOMM' id='INVCOMM'>
+        %INVCOMM%
         </select>
         </div>
 

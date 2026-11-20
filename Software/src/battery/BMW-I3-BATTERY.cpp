@@ -6,10 +6,8 @@
 #include "../datalayer/datalayer_extended.h"
 #include "../devboard/utils/common_functions.h"  //For CRC table
 #include "../devboard/utils/events.h"
-#ifndef SMALL_FLASH_DEVICE
 #include "../devboard/utils/logging.h"  //For debug logging
 #include "BATTERIES.h"
-#endif  // SMALL_FLASH_DEVICE
 
 /* Do not change code below unless you are sure what you are doing */
 
@@ -480,7 +478,9 @@ uint16_t BmwI3Battery::update_soc_report_whole_percent(uint16_t source_soc_pptt)
   return soc_report_pptt;
 }
 
-// Extra charge/discharge limits while SOC_Havrla is active. They only lower the BMS limits, never raise them.
+// Extra charge/discharge limits. They only lower the BMS limits, never raise them. The cell voltage charge
+// limit runs in every SOC_Havrla mode, so it also works when the BMS SOC drifts. The discharge and SOC based
+// charge limits only apply while SOC_Havrla is active.
 void BmwI3Battery::apply_havrla_power_limits() {
   const uint16_t* vtab;
   const uint16_t* stab;
@@ -510,27 +510,47 @@ void BmwI3Battery::apply_havrla_power_limits() {
 
   uint16_t cell_min_mV = datalayer_battery->status.cell_min_voltage_mV;
   uint16_t cell_max_mV = datalayer_battery->status.cell_max_voltage_mV;
+  bool havrla_active = (user_selected_bmw_i3_soc_havrla != 0);
 
   // Near empty: limit from the lowest cell voltage
-  uint32_t discharge_limit_W = havrla_cell_discharge_limit_W(
-      havrla_limit_cell_voltage_mV(cell_min_mV, cell_max_mV, battery_volts, NUMBER_OF_CELLS, false), battery_volts,
-      vtab, stab, tsize, discharge_config, &havrla_cell_discharge_limit_filter_initialized,
-      &havrla_cell_discharge_limit_filtered_current_dA, &havrla_cell_discharge_limit_last_update_ms);
-  if (datalayer_battery->status.max_discharge_power_W > discharge_limit_W) {
-    datalayer_battery->status.max_discharge_power_W = discharge_limit_W;
+  if (havrla_active) {
+    uint32_t discharge_limit_W = havrla_cell_discharge_limit_W(
+        havrla_limit_cell_voltage_mV(cell_min_mV, cell_max_mV, battery_volts, NUMBER_OF_CELLS, false), battery_volts,
+        vtab, stab, tsize, discharge_config, &havrla_cell_discharge_limit_filter_initialized,
+        &havrla_cell_discharge_limit_filtered_current_dA, &havrla_cell_discharge_limit_last_update_ms);
+    if (datalayer_battery->status.max_discharge_power_W > discharge_limit_W) {
+      datalayer_battery->status.max_discharge_power_W = discharge_limit_W;
+    }
   }
 
-  // Near full: limit from the highest cell voltage, then from SOC_Havrla
+  // Near full: limit from the highest cell voltage. The ramp ends at the user set end-of-charge power
+  // (default 1000 W), kept between 0.1 A and just below the ramp start current so the ramp stays valid.
+  HavrlaCellLimitConfig end_charge_config = *charge_config;
+  if (battery_volts > 0) {
+    uint32_t end_dA =
+        ((uint32_t)user_selected_bmw_i3_end_charge_power_W * 100U + battery_volts / 2U) / battery_volts;  // W -> dA
+    if (end_dA < 1U) {
+      end_dA = 1U;
+    }
+    if (end_dA >= end_charge_config.current_start_dA) {
+      end_dA = end_charge_config.current_start_dA - 1U;
+    }
+    end_charge_config.current_end_dA = (uint16_t)end_dA;
+  }
   uint32_t charge_limit_W = havrla_cell_charge_limit_W(
       havrla_limit_cell_voltage_mV(cell_min_mV, cell_max_mV, battery_volts, NUMBER_OF_CELLS, true), battery_volts, vtab,
-      stab, tsize, charge_config, &havrla_cell_charge_limit_filter_initialized,
+      stab, tsize, &end_charge_config, &havrla_cell_charge_limit_filter_initialized,
       &havrla_cell_charge_limit_filtered_current_dA, &havrla_cell_charge_limit_last_update_ms);
   if (datalayer_battery->status.max_charge_power_W > charge_limit_W) {
     datalayer_battery->status.max_charge_power_W = charge_limit_W;
   }
-  uint32_t soc_charge_limit_W = havrla_soc_charge_power_limit_W(soc_havrla_pptt, battery_volts);
-  if (datalayer_battery->status.max_charge_power_W > soc_charge_limit_W) {
-    datalayer_battery->status.max_charge_power_W = soc_charge_limit_W;
+
+  // Near full: SOC_Havrla based limit
+  if (havrla_active) {
+    uint32_t soc_charge_limit_W = havrla_soc_charge_power_limit_W(soc_havrla_pptt, battery_volts);
+    if (datalayer_battery->status.max_charge_power_W > soc_charge_limit_W) {
+      datalayer_battery->status.max_charge_power_W = soc_charge_limit_W;
+    }
   }
 }
 #endif  // SMALL_FLASH_DEVICE
@@ -560,11 +580,16 @@ void BmwI3Battery::update_values() {  //This function maps all the values fetche
   // Map internal balancing state to datalayer balancing_status
   if (UserRequestBalancing == NONE) {
     datalayer_battery->status.balancing_status = BALANCING_STATUS_READY;
+    datalayer_battery->status.offline_balancing = false;
   } else {
     datalayer_battery->status.balancing_status = BALANCING_STATUS_ACTIVE;
+    datalayer_battery->status.offline_balancing = true;  // Inter-unit Controller/Node balancing is active.
   }
 
   if (!battery_awake) {
+    if (datalayer_battery->status.offline_balancing) {
+      datalayer.system.status.contactors_engaged = 0;
+    }
     return;
   }
 
@@ -605,9 +630,7 @@ void BmwI3Battery::update_values() {  //This function maps all the values fetche
     datalayer_battery->status.max_charge_power_W = battery_BEV_available_power_longterm_charge;
 
 #ifndef SMALL_FLASH_DEVICE
-    if (user_selected_bmw_i3_soc_havrla != 0) {
-      apply_havrla_power_limits();
-    }
+    apply_havrla_power_limits();
 #endif  // SMALL_FLASH_DEVICE
   } else {
     datalayer_battery->status.max_discharge_power_W = 0;
@@ -788,6 +811,19 @@ void BmwI3Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
       battery_status_service_disconnection_plug = (rx_frame.data.u8[0] & 0x0F);
       battery_status_measurement_isolation = (rx_frame.data.u8[0] & 0x0C) >> 2;
       battery_request_abort_charging = (rx_frame.data.u8[0] & 0x30) >> 4;
+      // Log the moment the battery reports charge-finished (RQ_ABRT_CHGNG becomes 1 = "Request to
+      // interrupt charging"). This is the signal that ends auto-/manual calibration and drives SOC to
+      // 100%. Only value 1 is a real request - 2 (cooling) and 3 (invalid) are ignored to avoid
+      // spurious stops on transient/invalid frames.
+      if (battery_request_abort_charging == 1 && previous_request_abort_charging != 1) {
+        logging.print("BMW i3: Battery reports charge-finished (abort charging = ");
+        logging.print(battery_request_abort_charging);
+        logging.print("). Reported SOC = ");
+        logging.print(battery_display_SOC *
+                      0.5);  // display SOC * 0.5 = display/reported SOC in percent (display SOC * 50 = 0.01% units)
+        logging.println(" %");
+      }
+      previous_request_abort_charging = battery_request_abort_charging;
       battery_prediction_duration_charging_minutes = (rx_frame.data.u8[3] << 8 | rx_frame.data.u8[2]);
       battery_prediction_time_end_of_charging_minutes = rx_frame.data.u8[4];
       battery_energy_content_maximum_Wh = (((rx_frame.data.u8[6] & 0x0F) << 8) | rx_frame.data.u8[5]) * 20;

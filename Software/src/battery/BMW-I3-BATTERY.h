@@ -33,6 +33,8 @@ class BmwI3Battery : public CanBattery {
   virtual void transmit_can(unsigned long currentMillis);
   static constexpr const char* Name = "BMW i3";
 
+  // Closes only while the inverter allows it and reports the DC switch status (0x1FA)
+  bool reports_contactor_state() { return true; }
   bool supports_balancing() { return true; }
   bool is_balancing_active() { return UserRequestBalancing != NONE; }
   const char* get_balancing_state_string() {
@@ -531,6 +533,7 @@ class BmwI3Battery : public CanBattery {
   uint8_t battery_status_service_disconnection_plug = 0;
   uint8_t battery_status_measurement_isolation = 0;
   uint8_t battery_request_abort_charging = 0;
+  uint8_t previous_request_abort_charging = 0;  //Edge detection for logging when battery reports charge-finished
   uint8_t battery_prediction_time_end_of_charging_minutes = 0;
   uint8_t battery_request_operating_mode = 0;
   uint8_t battery_request_charging_condition_minimum = 0;

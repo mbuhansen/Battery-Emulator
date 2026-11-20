@@ -170,6 +170,11 @@ void init_stored_settings() {
   if (user_selected_bmw_i3_soc_havrla > 2) {
     user_selected_bmw_i3_soc_havrla = 0;
   }
+  uint32_t bmw_i3_end_charge_power_W = settings.getUInt("BMWI3ENDCHGW", 1000);
+  if (bmw_i3_end_charge_power_W < 100 || bmw_i3_end_charge_power_W > 5000) {
+    bmw_i3_end_charge_power_W = 1000;
+  }
+  user_selected_bmw_i3_end_charge_power_W = (uint16_t)bmw_i3_end_charge_power_W;
 #endif  // SMALL_FLASH_DEVICE
   user_selected_tesla_GTW_country = settings.getUInt("GTWCOUNTRY", user_selected_tesla_GTW_country);
   user_selected_tesla_GTW_rightHandDrive = settings.getBool("GTWRHD", user_selected_tesla_GTW_rightHandDrive);
@@ -181,8 +186,8 @@ void init_stored_settings() {
   // Watchdog period the inverter last told us about, or the default if it never has
   inverter_modbus_watchdog_timeout_s = settings.getUInt("INVWDTMO", MODBUS_INV_WATCHDOG_DEFAULT_S);
 
-  auto readIf = [&settings](const char* settingName) {
-    auto batt1If = (comm_interface)settings.getUInt(settingName, (int)comm_interface::CanNative);
+  auto readIf = [&settings](const char* settingName, comm_interface defaultIf = comm_interface::CanNative) {
+    auto batt1If = (comm_interface)settings.getUInt(settingName, (int)defaultIf);
     switch (batt1If) {
       case comm_interface::CanNative:
         return CAN_Interface::CAN_NATIVE;
@@ -368,6 +373,23 @@ void init_stored_settings() {
   datalayer_extended.bydAtto3.balance_timer_auto_read = settings.getBool("BYDBALAUTO", false);
   datalayer_extended.bydAtto3_2.balance_timer_auto_read = settings.getBool("BYDBALAUTO2", false);
   datalayer_extended.bydAtto3.full_charge_every_days = settings.getUInt("BYDFCDAYS", 0);
+
+  // Controller/Node inter-unit protocol settings
+  // Derive node mode from battery/inverter selection — no separate NODEMODE key needed.
+  // InterUnitController battery type → this unit is the Controller.
+  // InterUnitNode inverter type      → this unit is a battery Node.
+  if (user_selected_battery_type == BatteryType::InterUnitController) {
+    datalayer.system.status.node_mode = NODE_CONTROLLER;
+  } else if (user_selected_inverter_protocol == InverterProtocolType::InterUnitNode) {
+    datalayer.system.status.node_mode = NODE_BATTERY;
+  } else {
+    datalayer.system.status.node_mode = NODE_STANDALONE;
+  }
+  // NVM key "SLAVENODEID" is kept for backward compatibility with saved settings.
+  datalayer.system.status.battery_node_id = (uint8_t)settings.getUInt("SLAVENODEID", 1);
+  if (datalayer.system.status.battery_node_id < 1 || datalayer.system.status.battery_node_id > MAX_BATTERY_NODES) {
+    datalayer.system.status.battery_node_id = 1;  // Clamp to valid range
+  }
 }
 
 void clear_wifi_sta_settings() {
@@ -441,4 +463,9 @@ void store_settings() {
   settings.saveBool("BYDBALAUTO", datalayer_extended.bydAtto3.balance_timer_auto_read);
   settings.saveBool("BYDBALAUTO2", datalayer_extended.bydAtto3_2.balance_timer_auto_read);
   settings.saveUInt("BYDFCDAYS", datalayer_extended.bydAtto3.full_charge_every_days);
+
+  // Controller/Node inter-unit protocol settings
+  // node_mode is derived from BATTTYPE/INVTYPE at load time — no need to save separately.
+  // NVM key "SLAVENODEID" is kept for backward compatibility with saved settings.
+  settings.saveUInt("SLAVENODEID", datalayer.system.status.battery_node_id);
 }
