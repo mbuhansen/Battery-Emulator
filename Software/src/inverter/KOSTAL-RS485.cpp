@@ -236,7 +236,7 @@ void KostalInverterProtocol::receive()  // Runs as fast as possible to handle th
     dbg_message("inverter_allows_contactor_closing -> true (Contactor close timer ended after 5 sec)");
     contactorcloseTimerActive = false;
   }
-  if (datalayer.system.status.battery_allows_contactor_closing & !contactorMillis) {
+  if (datalayer.system.status.dc_bus_live & !contactorMillis) {
     contactorMillis = currentMillis;
   }
   if ((currentMillis - contactorMillis >= INTERVAL_2_S) && !RX_allow) {
