@@ -378,6 +378,12 @@ String settings_processor(const String& var, BatteryEmulatorSettingsStore& setti
     uint32_t mode = settings.getUInt("BMWI3SOCHAVR", 0);
     return options_from_map(mode > 2 ? 0 : mode, bmw_i3_soc_havrla_modes);
   }
+
+  if (var == "BMWI3ENDCHGW") {
+    // Out-of-range values boot as 1000 W (see init_stored_settings()), so show them that way.
+    uint32_t power_W = settings.getUInt("BMWI3ENDCHGW", 1000);
+    return String((power_W < 100 || power_W > 5000) ? 1000 : power_W);
+  }
 #endif  // SMALL_FLASH_DEVICE
 
   if (var == "EQSTOP") {
@@ -1493,7 +1499,7 @@ String qnhck_zero_text(uint16_t zero_mV) {
 #endif  // SMALL_FLASH_DEVICE
 
 #ifndef SMALL_FLASH_DEVICE
-// BMW i3 SOC Havrla selector, left out on small flash devices together with the calculation
+// BMW i3 SOC Havrla selector and end-of-charge power, left out on small flash devices together with the calculation
 #define BMWI3_SOCHAVR_SETTING_HTML \
   R"rawliteral(
         <div class="if-bmw-i3">
@@ -1502,6 +1508,12 @@ String qnhck_zero_text(uint16_t zero_mV) {
             title="Voltage-based SOC with internal resistance correction">
           %BMWI3SOCHAVR%
           </select>
+        </div>
+        <div class="if-bmw-i3">
+          <label for='BMWI3ENDCHGW'>End-of-charge power, watt: </label>
+          <input type='number' name='BMWI3ENDCHGW' id='BMWI3ENDCHGW' value="%BMWI3ENDCHGW%"
+            min="100" max="5000" step="1"
+            title="Charge power the highest cell voltage ramp ends at near full (about 400 W = 1 A)" />
         </div>
 )rawliteral"
 #else
