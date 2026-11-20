@@ -11,7 +11,6 @@
 
 /* Do not change code below unless you are sure what you are doing */
 
-#ifndef SMALL_FLASH_DEVICE
 // BMW i3 60Ah cell characterization data (96 cells in series).
 // Voltage in mV, SOC in pptt (10000 = 100%). Descending voltage order.
 static const uint16_t bmwi3_voltage_table_60ah[] = {4085, 4073, 4063, 4050, 4029, 4009, 3994, 3980, 3953,
@@ -45,26 +44,6 @@ static constexpr uint8_t BMWI3_TABLE_SIZE_120AH =
 
 static constexpr uint32_t HAVRLA_NO_LIMIT_W = 0xFFFFFFFFUL;
 
-static uint16_t interpolate_soc_from_voltage_mV(int32_t v_mV, const uint16_t* vtab, const uint16_t* stab,
-                                                uint8_t tsize) {
-  if (v_mV >= (int32_t)vtab[0]) {
-    return stab[0];
-  }
-  if (v_mV <= (int32_t)vtab[tsize - 1]) {
-    return stab[tsize - 1];
-  }
-  for (uint8_t i = 0; i < tsize - 1; i++) {
-    if (v_mV <= (int32_t)vtab[i] && v_mV >= (int32_t)vtab[i + 1]) {
-      int32_t v_hi = vtab[i];
-      int32_t v_lo = vtab[i + 1];
-      int32_t s_hi = stab[i];
-      int32_t s_lo = stab[i + 1];
-      return (uint16_t)(s_lo + (v_mV - v_lo) * (s_hi - s_lo) / (v_hi - v_lo));
-    }
-  }
-  return 0;
-}
-
 static uint16_t interpolate_voltage_from_soc_pptt(uint16_t soc_pptt, const uint16_t* vtab, const uint16_t* stab,
                                                   uint8_t tsize) {
   if (soc_pptt >= stab[0]) {
@@ -88,40 +67,9 @@ static uint16_t interpolate_voltage_from_soc_pptt(uint16_t soc_pptt, const uint1
   return vtab[tsize - 1];
 }
 
-// Smoothstep gain: x = 0 -> 0, x >= span -> 1024, with a soft ramp in between
-static uint16_t smooth_gain_1024(uint16_t x, uint16_t span) {
-  if (span == 0 || x >= span) {
-    return 1024;
-  }
-  uint32_t t = ((uint32_t)x * 1024U) / span;
-  uint64_t gain = (uint64_t)t * (uint64_t)t * (uint64_t)(3U * 1024U - 2U * t);  // 3t^2 - 2t^3
-  gain /= (1024ULL * 1024ULL);
-  return (uint16_t)gain;
-}
-
 // W = (dV / 10) * (dA / 10) = dV * dA / 100
 static uint32_t havrla_current_to_power_W(uint16_t voltage_dV, uint32_t current_dA) {
   return ((uint32_t)voltage_dV * current_dA + 50U) / 100U;
-}
-
-// SOC_Havrla based charge limit near full: from 98.0 % ramp from 30 A down to 1 A at 99.8 %, then hold 1 A.
-static uint32_t havrla_soc_charge_power_limit_W(uint16_t soc_pptt, uint16_t voltage_dV) {
-  static const uint16_t SOC_LIMIT_START_PPTT = 9800;
-  static const uint16_t SOC_LIMIT_ONE_AMP_PPTT = 9980;
-  static const uint16_t CHARGE_LIMIT_START_DA = 300;  // 30.0 A
-  static const uint16_t CHARGE_LIMIT_END_DA = 10;     // 1.0 A
-
-  if (soc_pptt < SOC_LIMIT_START_PPTT || voltage_dV == 0) {
-    return HAVRLA_NO_LIMIT_W;
-  }
-  uint32_t current_limit_dA = CHARGE_LIMIT_END_DA;
-  if (soc_pptt < SOC_LIMIT_ONE_AMP_PPTT) {
-    uint32_t progress_pptt = (uint32_t)soc_pptt - SOC_LIMIT_START_PPTT;
-    uint32_t span_pptt = SOC_LIMIT_ONE_AMP_PPTT - SOC_LIMIT_START_PPTT;
-    uint32_t current_drop_dA = CHARGE_LIMIT_START_DA - CHARGE_LIMIT_END_DA;
-    current_limit_dA = CHARGE_LIMIT_START_DA - ((progress_pptt * current_drop_dA + span_pptt / 2U) / span_pptt);
-  }
-  return havrla_current_to_power_W(voltage_dV, current_limit_dA);
 }
 
 // Cell voltage limit ramp. The SOC points select voltages from the matching 60/94/120Ah table.
@@ -138,11 +86,6 @@ struct HavrlaCellLimitConfig {
 static const HavrlaCellLimitConfig HAVRLA_CELL_CHARGE_LIMIT_60AH = {9700, 9980, 150, 10, 10};
 static const HavrlaCellLimitConfig HAVRLA_CELL_CHARGE_LIMIT_94AH = {9750, 9980, 250, 10, 10};
 static const HavrlaCellLimitConfig HAVRLA_CELL_CHARGE_LIMIT_120AH = {9800, 9980, 300, 10, 10};
-
-// Discharge: 60Ah is the softest pack, 120Ah the stiffest
-static const HavrlaCellLimitConfig HAVRLA_CELL_DISCHARGE_LIMIT_60AH = {1200, 1000, 300, 10, 10};
-static const HavrlaCellLimitConfig HAVRLA_CELL_DISCHARGE_LIMIT_94AH = {1100, 900, 300, 50, 10};
-static const HavrlaCellLimitConfig HAVRLA_CELL_DISCHARGE_LIMIT_120AH = {1100, 500, 300, 10, 20};
 
 // Cell voltage used for limiting: cell max (charge) or cell min (discharge). Falls back to pack voltage / 96
 // when cell min/max is not ready or does not agree with the pack voltage.
@@ -243,6 +186,63 @@ static uint32_t havrla_cell_charge_limit_W(uint16_t limit_cell_mV, uint16_t volt
   return havrla_filtered_limit_W(raw_limit_active, raw_current_limit_dA, voltage_dV, config, filter_initialized,
                                  filtered_current_limit_dA, last_update_ms);
 }
+
+#ifndef SMALL_FLASH_DEVICE
+static uint16_t interpolate_soc_from_voltage_mV(int32_t v_mV, const uint16_t* vtab, const uint16_t* stab,
+                                                uint8_t tsize) {
+  if (v_mV >= (int32_t)vtab[0]) {
+    return stab[0];
+  }
+  if (v_mV <= (int32_t)vtab[tsize - 1]) {
+    return stab[tsize - 1];
+  }
+  for (uint8_t i = 0; i < tsize - 1; i++) {
+    if (v_mV <= (int32_t)vtab[i] && v_mV >= (int32_t)vtab[i + 1]) {
+      int32_t v_hi = vtab[i];
+      int32_t v_lo = vtab[i + 1];
+      int32_t s_hi = stab[i];
+      int32_t s_lo = stab[i + 1];
+      return (uint16_t)(s_lo + (v_mV - v_lo) * (s_hi - s_lo) / (v_hi - v_lo));
+    }
+  }
+  return 0;
+}
+
+// Smoothstep gain: x = 0 -> 0, x >= span -> 1024, with a soft ramp in between
+static uint16_t smooth_gain_1024(uint16_t x, uint16_t span) {
+  if (span == 0 || x >= span) {
+    return 1024;
+  }
+  uint32_t t = ((uint32_t)x * 1024U) / span;
+  uint64_t gain = (uint64_t)t * (uint64_t)t * (uint64_t)(3U * 1024U - 2U * t);  // 3t^2 - 2t^3
+  gain /= (1024ULL * 1024ULL);
+  return (uint16_t)gain;
+}
+
+// SOC_Havrla based charge limit near full: from 98.0 % ramp from 30 A down to 1 A at 99.8 %, then hold 1 A.
+static uint32_t havrla_soc_charge_power_limit_W(uint16_t soc_pptt, uint16_t voltage_dV) {
+  static const uint16_t SOC_LIMIT_START_PPTT = 9800;
+  static const uint16_t SOC_LIMIT_ONE_AMP_PPTT = 9980;
+  static const uint16_t CHARGE_LIMIT_START_DA = 300;  // 30.0 A
+  static const uint16_t CHARGE_LIMIT_END_DA = 10;     // 1.0 A
+
+  if (soc_pptt < SOC_LIMIT_START_PPTT || voltage_dV == 0) {
+    return HAVRLA_NO_LIMIT_W;
+  }
+  uint32_t current_limit_dA = CHARGE_LIMIT_END_DA;
+  if (soc_pptt < SOC_LIMIT_ONE_AMP_PPTT) {
+    uint32_t progress_pptt = (uint32_t)soc_pptt - SOC_LIMIT_START_PPTT;
+    uint32_t span_pptt = SOC_LIMIT_ONE_AMP_PPTT - SOC_LIMIT_START_PPTT;
+    uint32_t current_drop_dA = CHARGE_LIMIT_START_DA - CHARGE_LIMIT_END_DA;
+    current_limit_dA = CHARGE_LIMIT_START_DA - ((progress_pptt * current_drop_dA + span_pptt / 2U) / span_pptt);
+  }
+  return havrla_current_to_power_W(voltage_dV, current_limit_dA);
+}
+
+// Discharge: 60Ah is the softest pack, 120Ah the stiffest
+static const HavrlaCellLimitConfig HAVRLA_CELL_DISCHARGE_LIMIT_60AH = {1200, 1000, 300, 10, 10};
+static const HavrlaCellLimitConfig HAVRLA_CELL_DISCHARGE_LIMIT_94AH = {1100, 900, 300, 50, 10};
+static const HavrlaCellLimitConfig HAVRLA_CELL_DISCHARGE_LIMIT_120AH = {1100, 500, 300, 10, 20};
 
 // Discharge limit from the lowest cell voltage near empty (voltage falls towards soc_end_pptt)
 static uint32_t havrla_cell_discharge_limit_W(uint16_t limit_cell_mV, uint16_t voltage_dV, const uint16_t* vtab,
@@ -478,31 +478,19 @@ uint16_t BmwI3Battery::update_soc_report_whole_percent(uint16_t source_soc_pptt)
   return soc_report_pptt;
 }
 
-// Extra charge/discharge limits while SOC_Havrla is active. They only lower the BMS limits, never raise them.
+// Extra discharge/SOC limits while SOC_Havrla is active. They only lower the BMS limits, never raise them.
 void BmwI3Battery::apply_havrla_power_limits() {
   const uint16_t* vtab;
   const uint16_t* stab;
   uint8_t tsize;
-  const HavrlaCellLimitConfig* charge_config;
   const HavrlaCellLimitConfig* discharge_config;
+  select_soc_table(&vtab, &stab, &tsize);
 
   if (detectedBattery == BATTERY_120AH) {
-    vtab = bmwi3_voltage_table_120ah;
-    stab = bmwi3_soc_table_120ah;
-    tsize = BMWI3_TABLE_SIZE_120AH;
-    charge_config = &HAVRLA_CELL_CHARGE_LIMIT_120AH;
     discharge_config = &HAVRLA_CELL_DISCHARGE_LIMIT_120AH;
   } else if (detectedBattery == BATTERY_94AH) {
-    vtab = bmwi3_voltage_table_94ah;
-    stab = bmwi3_soc_table_94ah;
-    tsize = BMWI3_TABLE_SIZE_94AH;
-    charge_config = &HAVRLA_CELL_CHARGE_LIMIT_94AH;
     discharge_config = &HAVRLA_CELL_DISCHARGE_LIMIT_94AH;
   } else {
-    vtab = bmwi3_voltage_table_60ah;
-    stab = bmwi3_soc_table_60ah;
-    tsize = BMWI3_TABLE_SIZE_60AH;
-    charge_config = &HAVRLA_CELL_CHARGE_LIMIT_60AH;
     discharge_config = &HAVRLA_CELL_DISCHARGE_LIMIT_60AH;
   }
 
@@ -518,20 +506,70 @@ void BmwI3Battery::apply_havrla_power_limits() {
     datalayer_battery->status.max_discharge_power_W = discharge_limit_W;
   }
 
-  // Near full: limit from the highest cell voltage, then from SOC_Havrla
-  uint32_t charge_limit_W = havrla_cell_charge_limit_W(
-      havrla_limit_cell_voltage_mV(cell_min_mV, cell_max_mV, battery_volts, NUMBER_OF_CELLS, true), battery_volts, vtab,
-      stab, tsize, charge_config, &havrla_cell_charge_limit_filter_initialized,
-      &havrla_cell_charge_limit_filtered_current_dA, &havrla_cell_charge_limit_last_update_ms);
-  if (datalayer_battery->status.max_charge_power_W > charge_limit_W) {
-    datalayer_battery->status.max_charge_power_W = charge_limit_W;
-  }
+  // Near full: SOC_Havrla based limit (the cell voltage limit runs in apply_cell_charge_limit())
   uint32_t soc_charge_limit_W = havrla_soc_charge_power_limit_W(soc_havrla_pptt, battery_volts);
   if (datalayer_battery->status.max_charge_power_W > soc_charge_limit_W) {
     datalayer_battery->status.max_charge_power_W = soc_charge_limit_W;
   }
 }
 #endif  // SMALL_FLASH_DEVICE
+
+void BmwI3Battery::select_soc_table(const uint16_t** vtab, const uint16_t** stab, uint8_t* tsize) {
+  if (detectedBattery == BATTERY_120AH) {
+    *vtab = bmwi3_voltage_table_120ah;
+    *stab = bmwi3_soc_table_120ah;
+    *tsize = BMWI3_TABLE_SIZE_120AH;
+  } else if (detectedBattery == BATTERY_94AH) {
+    *vtab = bmwi3_voltage_table_94ah;
+    *stab = bmwi3_soc_table_94ah;
+    *tsize = BMWI3_TABLE_SIZE_94AH;
+  } else {
+    *vtab = bmwi3_voltage_table_60ah;
+    *stab = bmwi3_soc_table_60ah;
+    *tsize = BMWI3_TABLE_SIZE_60AH;
+  }
+}
+
+// Charge limit near full from the highest cell voltage, always active so it also works when the BMS SOC
+// drifts. Ramps down from the 97-98 % table voltage and ends at 1 A with SOC_Havrla active, or at
+// END_CHARGE_POWER_W with SOC_Havrla disabled. Only lowers the BMS limit, never raises it.
+void BmwI3Battery::apply_cell_charge_limit() {
+  const uint16_t* vtab;
+  const uint16_t* stab;
+  uint8_t tsize;
+  select_soc_table(&vtab, &stab, &tsize);
+
+  HavrlaCellLimitConfig config;
+  if (detectedBattery == BATTERY_120AH) {
+    config = HAVRLA_CELL_CHARGE_LIMIT_120AH;
+  } else if (detectedBattery == BATTERY_94AH) {
+    config = HAVRLA_CELL_CHARGE_LIMIT_94AH;
+  } else {
+    config = HAVRLA_CELL_CHARGE_LIMIT_60AH;
+  }
+
+  bool havrla_active = false;
+#ifndef SMALL_FLASH_DEVICE
+  havrla_active = (user_selected_bmw_i3_soc_havrla != 0);
+#endif  // SMALL_FLASH_DEVICE
+  if (!havrla_active && battery_volts > 0) {
+    // End current that gives END_CHARGE_POWER_W at the present pack voltage (W = dV * dA / 100)
+    uint32_t end_dA = (END_CHARGE_POWER_W * 100U + battery_volts / 2U) / battery_volts;
+    if (end_dA > config.current_end_dA && end_dA < config.current_start_dA) {
+      config.current_end_dA = (uint16_t)end_dA;
+    }
+  }
+
+  uint16_t cell_min_mV = datalayer_battery->status.cell_min_voltage_mV;
+  uint16_t cell_max_mV = datalayer_battery->status.cell_max_voltage_mV;
+  uint32_t charge_limit_W = havrla_cell_charge_limit_W(
+      havrla_limit_cell_voltage_mV(cell_min_mV, cell_max_mV, battery_volts, NUMBER_OF_CELLS, true), battery_volts, vtab,
+      stab, tsize, &config, &havrla_cell_charge_limit_filter_initialized, &havrla_cell_charge_limit_filtered_current_dA,
+      &havrla_cell_charge_limit_last_update_ms);
+  if (datalayer_battery->status.max_charge_power_W > charge_limit_W) {
+    datalayer_battery->status.max_charge_power_W = charge_limit_W;
+  }
+}
 
 void BmwI3Battery::update_values() {  //This function maps all the values fetched via CAN to the battery datalayer
   if (contactor_recovery_force_wakeup_low) {
@@ -606,6 +644,8 @@ void BmwI3Battery::update_values() {  //This function maps all the values fetche
     datalayer_battery->status.max_discharge_power_W = battery_BEV_available_power_longterm_discharge;
 
     datalayer_battery->status.max_charge_power_W = battery_BEV_available_power_longterm_charge;
+
+    apply_cell_charge_limit();
 
 #ifndef SMALL_FLASH_DEVICE
     if (user_selected_bmw_i3_soc_havrla != 0) {

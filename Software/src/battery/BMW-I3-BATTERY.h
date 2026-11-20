@@ -135,6 +135,16 @@ class BmwI3Battery : public CanBattery {
   const int MIN_PACK_VOLTAGE_120AH = 2680;  // Discharge stops if pack voltage exceeds this value
   const int NUMBER_OF_CELLS = 96;
 
+  // Cell voltage based charge limit near full, always active (also with SOC_Havrla disabled and on
+  // small flash devices): tightened immediately, released slowly. With SOC_Havrla disabled the ramp
+  // ends at END_CHARGE_POWER_W instead of 1 A.
+  const uint32_t END_CHARGE_POWER_W = 1000;
+  bool havrla_cell_charge_limit_filter_initialized = false;
+  uint16_t havrla_cell_charge_limit_filtered_current_dA = 0;
+  uint32_t havrla_cell_charge_limit_last_update_ms = 0;
+  void apply_cell_charge_limit();
+  void select_soc_table(const uint16_t** vtab, const uint16_t** stab, uint8_t* tsize);
+
   DATALAYER_BATTERY_TYPE* datalayer_battery;
 
   // If not null, this battery decides when the contactor can be closed and writes the value here.
@@ -192,10 +202,7 @@ class BmwI3Battery : public CanBattery {
   uint16_t soc_report_pptt = 0;
   bool soc_report_initialized = false;
 
-  // Cell voltage based charge/discharge limits: tightened immediately, released slowly
-  bool havrla_cell_charge_limit_filter_initialized = false;
-  uint16_t havrla_cell_charge_limit_filtered_current_dA = 0;
-  uint32_t havrla_cell_charge_limit_last_update_ms = 0;
+  // Cell voltage based discharge limit: tightened immediately, released slowly
   bool havrla_cell_discharge_limit_filter_initialized = false;
   uint16_t havrla_cell_discharge_limit_filtered_current_dA = 0;
   uint32_t havrla_cell_discharge_limit_last_update_ms = 0;
