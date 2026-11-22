@@ -384,6 +384,12 @@ String settings_processor(const String& var, BatteryEmulatorSettingsStore& setti
     uint32_t power_W = settings.getUInt("BMWI3ENDCHGW", 1000);
     return String((power_W < 100 || power_W > 5000) ? 1000 : power_W);
   }
+
+  if (var == "BMWI3RAMPMV") {
+    // Out-of-range values boot as 0 mV (see init_stored_settings()), so show them that way.
+    uint32_t shift_mV = settings.getUInt("BMWI3RAMPMV", 0);
+    return String(shift_mV > 10 ? 0 : shift_mV);
+  }
 #endif  // SMALL_FLASH_DEVICE
 
   if (var == "EQSTOP") {
@@ -1499,7 +1505,7 @@ String qnhck_zero_text(uint16_t zero_mV) {
 #endif  // SMALL_FLASH_DEVICE
 
 #ifndef SMALL_FLASH_DEVICE
-// BMW i3 SOC Havrla selector and end-of-charge power, left out on small flash devices together with the calculation
+// BMW i3 SOC Havrla selector, end-of-charge power and charge ramp shift, left out on small flash devices together with the calculation
 #define BMWI3_SOCHAVR_SETTING_HTML \
   R"rawliteral(
         <div class="if-bmw-i3">
@@ -1514,6 +1520,12 @@ String qnhck_zero_text(uint16_t zero_mV) {
           <input type='number' name='BMWI3ENDCHGW' id='BMWI3ENDCHGW' value="%BMWI3ENDCHGW%"
             min="100" max="5000" step="1"
             title="Charge power the highest cell voltage ramp ends at near full (about 400 W = 1 A)" />
+        </div>
+        <div class="if-bmw-i3">
+          <label for='BMWI3RAMPMV'>Charge ramp shift, mV: </label>
+          <input type='number' name='BMWI3RAMPMV' id='BMWI3RAMPMV' value="%BMWI3RAMPMV%"
+            min="0" max="10" step="1"
+            title="Moves the highest cell voltage charge ramp up so full power is kept longer. The ramp end never goes above the max cell voltage - 10 mV" />
         </div>
 )rawliteral"
 #else

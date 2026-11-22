@@ -216,17 +216,20 @@ static uint32_t havrla_filtered_limit_W(bool raw_limit_active, uint32_t raw_curr
   return havrla_current_to_power_W(voltage_dV, filtered_current_dA);
 }
 
-// Charge limit from the highest cell voltage near full (voltage rises towards soc_end_pptt)
+// Charge limit from the highest cell voltage near full (voltage rises towards soc_end_pptt).
+// voltage_shift_mV moves the whole ramp (start and end) up by that many mV.
 static uint32_t havrla_cell_charge_limit_W(uint16_t limit_cell_mV, uint16_t voltage_dV, const uint16_t* vtab,
                                            const uint16_t* stab, uint8_t tsize, const HavrlaCellLimitConfig* config,
-                                           bool* filter_initialized, uint16_t* filtered_current_limit_dA,
-                                           uint32_t* last_update_ms) {
+                                           uint16_t voltage_shift_mV, bool* filter_initialized,
+                                           uint16_t* filtered_current_limit_dA, uint32_t* last_update_ms) {
   if (voltage_dV == 0 || config->soc_end_pptt <= config->soc_start_pptt ||
       config->current_start_dA <= config->current_end_dA) {
     return HAVRLA_NO_LIMIT_W;
   }
-  uint16_t voltage_start_mV = interpolate_voltage_from_soc_pptt(config->soc_start_pptt, vtab, stab, tsize);
-  uint16_t voltage_end_mV = interpolate_voltage_from_soc_pptt(config->soc_end_pptt, vtab, stab, tsize);
+  uint16_t voltage_start_mV =
+      interpolate_voltage_from_soc_pptt(config->soc_start_pptt, vtab, stab, tsize) + voltage_shift_mV;
+  uint16_t voltage_end_mV =
+      interpolate_voltage_from_soc_pptt(config->soc_end_pptt, vtab, stab, tsize) + voltage_shift_mV;
 
   bool raw_limit_active = true;
   uint32_t raw_current_limit_dA = config->current_end_dA;
@@ -487,6 +490,7 @@ void BmwI3Battery::apply_havrla_power_limits() {
   uint8_t tsize;
   const HavrlaCellLimitConfig* charge_config;
   const HavrlaCellLimitConfig* discharge_config;
+  uint16_t max_cell_mV;
 
   if (detectedBattery == BATTERY_120AH) {
     vtab = bmwi3_voltage_table_120ah;
@@ -494,18 +498,21 @@ void BmwI3Battery::apply_havrla_power_limits() {
     tsize = BMWI3_TABLE_SIZE_120AH;
     charge_config = &HAVRLA_CELL_CHARGE_LIMIT_120AH;
     discharge_config = &HAVRLA_CELL_DISCHARGE_LIMIT_120AH;
+    max_cell_mV = MAX_CELL_VOLTAGE_120AH;
   } else if (detectedBattery == BATTERY_94AH) {
     vtab = bmwi3_voltage_table_94ah;
     stab = bmwi3_soc_table_94ah;
     tsize = BMWI3_TABLE_SIZE_94AH;
     charge_config = &HAVRLA_CELL_CHARGE_LIMIT_94AH;
     discharge_config = &HAVRLA_CELL_DISCHARGE_LIMIT_94AH;
+    max_cell_mV = MAX_CELL_VOLTAGE_94AH;
   } else {
     vtab = bmwi3_voltage_table_60ah;
     stab = bmwi3_soc_table_60ah;
     tsize = BMWI3_TABLE_SIZE_60AH;
     charge_config = &HAVRLA_CELL_CHARGE_LIMIT_60AH;
     discharge_config = &HAVRLA_CELL_DISCHARGE_LIMIT_60AH;
+    max_cell_mV = MAX_CELL_VOLTAGE_60AH;
   }
 
   uint16_t cell_min_mV = datalayer_battery->status.cell_min_voltage_mV;
@@ -524,7 +531,8 @@ void BmwI3Battery::apply_havrla_power_limits() {
   }
 
   // Near full: limit from the highest cell voltage. The ramp ends at the user set end-of-charge power
-  // (default 1000 W), kept between 0.1 A and just below the ramp start current so the ramp stays valid.
+  // (default 1000 W) and can be shifted up by the user set ramp shift (default 0 mV). The end power is kept
+  // between 0.1 A and just below the ramp start current so the ramp stays valid.
   HavrlaCellLimitConfig end_charge_config = *charge_config;
   if (battery_volts > 0) {
     uint32_t end_dA =
@@ -537,9 +545,19 @@ void BmwI3Battery::apply_havrla_power_limits() {
     }
     end_charge_config.current_end_dA = (uint16_t)end_dA;
   }
+  // The user set ramp shift moves the ramp up, but never past MAX_CELL_VOLTAGE - 10 mV at its end
+  uint16_t ramp_end_mV = interpolate_voltage_from_soc_pptt(end_charge_config.soc_end_pptt, vtab, stab, tsize);
+  uint16_t highest_ramp_end_mV = max_cell_mV - 10U;
+  uint16_t ramp_shift_mV = 0;
+  if (ramp_end_mV < highest_ramp_end_mV) {
+    ramp_shift_mV = highest_ramp_end_mV - ramp_end_mV;
+  }
+  if (ramp_shift_mV > user_selected_bmw_i3_charge_ramp_shift_mV) {
+    ramp_shift_mV = user_selected_bmw_i3_charge_ramp_shift_mV;
+  }
   uint32_t charge_limit_W = havrla_cell_charge_limit_W(
       havrla_limit_cell_voltage_mV(cell_min_mV, cell_max_mV, battery_volts, NUMBER_OF_CELLS, true), battery_volts, vtab,
-      stab, tsize, &end_charge_config, &havrla_cell_charge_limit_filter_initialized,
+      stab, tsize, &end_charge_config, ramp_shift_mV, &havrla_cell_charge_limit_filter_initialized,
       &havrla_cell_charge_limit_filtered_current_dA, &havrla_cell_charge_limit_last_update_ms);
   if (datalayer_battery->status.max_charge_power_W > charge_limit_W) {
     datalayer_battery->status.max_charge_power_W = charge_limit_W;

@@ -175,6 +175,11 @@ void init_stored_settings() {
     bmw_i3_end_charge_power_W = 1000;
   }
   user_selected_bmw_i3_end_charge_power_W = (uint16_t)bmw_i3_end_charge_power_W;
+  uint32_t bmw_i3_charge_ramp_shift_mV = settings.getUInt("BMWI3RAMPMV", 0);
+  if (bmw_i3_charge_ramp_shift_mV > 10) {
+    bmw_i3_charge_ramp_shift_mV = 0;
+  }
+  user_selected_bmw_i3_charge_ramp_shift_mV = (uint8_t)bmw_i3_charge_ramp_shift_mV;
 #endif  // SMALL_FLASH_DEVICE
   user_selected_tesla_GTW_country = settings.getUInt("GTWCOUNTRY", user_selected_tesla_GTW_country);
   user_selected_tesla_GTW_rightHandDrive = settings.getBool("GTWRHD", user_selected_tesla_GTW_rightHandDrive);
