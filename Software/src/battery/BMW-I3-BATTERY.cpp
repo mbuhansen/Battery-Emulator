@@ -218,10 +218,13 @@ static uint32_t havrla_filtered_limit_W(bool raw_limit_active, uint32_t raw_curr
 
 // Charge limit from the highest cell voltage near full (voltage rises towards soc_end_pptt).
 // voltage_shift_mV moves the whole ramp (start and end) up by that many mV.
+// ramp_start_current_dA above the configured start current extends the ramp downwards with the same slope,
+// so the limit starts at that current instead of jumping down to the configured start current.
 static uint32_t havrla_cell_charge_limit_W(uint16_t limit_cell_mV, uint16_t voltage_dV, const uint16_t* vtab,
                                            const uint16_t* stab, uint8_t tsize, const HavrlaCellLimitConfig* config,
-                                           uint16_t voltage_shift_mV, bool* filter_initialized,
-                                           uint16_t* filtered_current_limit_dA, uint32_t* last_update_ms) {
+                                           uint16_t voltage_shift_mV, uint16_t ramp_start_current_dA,
+                                           bool* filter_initialized, uint16_t* filtered_current_limit_dA,
+                                           uint32_t* last_update_ms) {
   if (voltage_dV == 0 || config->soc_end_pptt <= config->soc_start_pptt ||
       config->current_start_dA <= config->current_end_dA) {
     return HAVRLA_NO_LIMIT_W;
@@ -230,6 +233,20 @@ static uint32_t havrla_cell_charge_limit_W(uint16_t limit_cell_mV, uint16_t volt
       interpolate_voltage_from_soc_pptt(config->soc_start_pptt, vtab, stab, tsize) + voltage_shift_mV;
   uint16_t voltage_end_mV =
       interpolate_voltage_from_soc_pptt(config->soc_end_pptt, vtab, stab, tsize) + voltage_shift_mV;
+
+  HavrlaCellLimitConfig ramp_config = *config;
+  if (ramp_start_current_dA > config->current_start_dA && voltage_end_mV > voltage_start_mV) {
+    // Keep the slope (A per mV) and move the ramp start down until the line reaches ramp_start_current_dA
+    uint32_t span_mV = (uint32_t)voltage_end_mV - voltage_start_mV;
+    uint32_t config_drop_dA = config->current_start_dA - config->current_end_dA;
+    uint32_t extra_mV =
+        ((uint32_t)(ramp_start_current_dA - config->current_start_dA) * span_mV + config_drop_dA / 2U) / config_drop_dA;
+    if (extra_mV < voltage_start_mV) {
+      voltage_start_mV -= (uint16_t)extra_mV;
+      ramp_config.current_start_dA = ramp_start_current_dA;
+    }
+  }
+  config = &ramp_config;
 
   bool raw_limit_active = true;
   uint32_t raw_current_limit_dA = config->current_end_dA;
@@ -555,10 +572,13 @@ void BmwI3Battery::apply_havrla_power_limits() {
   if (ramp_shift_mV > user_selected_bmw_i3_charge_ramp_shift_mV) {
     ramp_shift_mV = user_selected_bmw_i3_charge_ramp_shift_mV;
   }
+  // The ramp starts at the user set max charge current (when higher than the built-in start current), with the
+  // same slope, so the limit falls smoothly instead of jumping down when the ramp starts
   uint32_t charge_limit_W = havrla_cell_charge_limit_W(
       havrla_limit_cell_voltage_mV(cell_min_mV, cell_max_mV, battery_volts, NUMBER_OF_CELLS, true), battery_volts, vtab,
-      stab, tsize, &end_charge_config, ramp_shift_mV, &havrla_cell_charge_limit_filter_initialized,
-      &havrla_cell_charge_limit_filtered_current_dA, &havrla_cell_charge_limit_last_update_ms);
+      stab, tsize, &end_charge_config, ramp_shift_mV, datalayer.battery_settings.max_user_set_charge_dA,
+      &havrla_cell_charge_limit_filter_initialized, &havrla_cell_charge_limit_filtered_current_dA,
+      &havrla_cell_charge_limit_last_update_ms);
   if (datalayer_battery->status.max_charge_power_W > charge_limit_W) {
     datalayer_battery->status.max_charge_power_W = charge_limit_W;
   }
