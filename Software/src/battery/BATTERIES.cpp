@@ -1,4 +1,5 @@
 #include "BATTERIES.h"
+#include "../communication/can/CONTROLLER-CAN.h"
 #include "../datalayer/datalayer_extended.h"
 #include "../devboard/hal/hal.h"
 #include "../devboard/utils/logging.h"
@@ -129,6 +130,8 @@ const char* name_for_battery_type(BatteryType type) {
       return CmpSmartCarBattery::Name;
     case BatteryType::EnnoidBMS:
       return EnnoidBms::Name;
+    case BatteryType::InterUnitController:
+      return "Inter-Unit Controller";
     case BatteryType::FordMachE:
       return FordMachEBattery::Name;
     case BatteryType::Foxess:
@@ -298,6 +301,8 @@ Battery* create_battery(BatteryType type) {
       return new CmpSmartCarBattery();
     case BatteryType::EnnoidBMS:
       return new EnnoidBms();
+    case BatteryType::InterUnitController:
+      return new InterUnitControllerBattery();
     case BatteryType::FordMachE:
       return new FordMachEBattery();
     case BatteryType::Foxess:
@@ -668,8 +673,10 @@ bool user_selected_LEAF_auto_current_offset = true;
 /* User-selected Tesla settings */
 bool user_selected_tesla_digital_HVIL = false;
 #ifndef SMALL_FLASH_DEVICE
-uint8_t user_selected_bmw_i3_soc_havrla = 0;  // 0=disable, 1=auto, 2=enable
-#endif                                        // SMALL_FLASH_DEVICE
+uint8_t user_selected_bmw_i3_soc_havrla = 0;             // 0=disable, 1=auto, 2=enable
+uint8_t user_selected_bmw_i3_charge_ramp_shift_mV = 0;   // moves the cell voltage charge ramp up (mV)
+uint16_t user_selected_bmw_i3_end_charge_power_W = 400;  // charge power at the end of the cell voltage ramp
+#endif                                                   // SMALL_FLASH_DEVICE
 uint16_t user_selected_tesla_GTW_country = 17477;
 bool user_selected_tesla_GTW_rightHandDrive = true;
 uint16_t user_selected_tesla_GTW_mapRegion = 2;

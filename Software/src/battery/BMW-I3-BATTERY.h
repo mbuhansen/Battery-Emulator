@@ -33,6 +33,8 @@ class BmwI3Battery : public CanBattery {
   virtual void transmit_can(unsigned long currentMillis);
   static constexpr const char* Name = "BMW i3";
 
+  // Closes only while the inverter allows it and reports the DC switch status (0x1FA)
+  bool reports_contactor_state() { return true; }
   bool supports_balancing() { return true; }
   bool is_balancing_active() { return UserRequestBalancing != NONE; }
   const char* get_balancing_state_string() {
@@ -439,7 +441,8 @@ class BmwI3Battery : public CanBattery {
   // Contactor-engagement watchdog: recovers the battery when it latches "Error precharge
   // blocked" and refuses to engage despite a close command. After CONTACTOR_ENGAGE_TIMEOUT_MS
   // without "engaged", it pulses wakeup low (sending open on CAN), then wakeup high and
-  // resumes the close command. Limited to MAX_CONTACTOR_RECOVERY_ATTEMPTS attempts.
+  // resumes the close command. Limited to MAX_CONTACTOR_RECOVERY_ATTEMPTS attempts. If the first attempt
+  // does not help, the battery DTCs are cleared before the second attempt.
   enum ContactorWatchdogState { CW_MONITOR, CW_RECOVERY_OPEN_LOW };
   ContactorWatchdogState cw_state = CW_MONITOR;
   unsigned long cw_close_request_start = 0;   // when the current un-engaged close began
@@ -531,6 +534,7 @@ class BmwI3Battery : public CanBattery {
   uint8_t battery_status_service_disconnection_plug = 0;
   uint8_t battery_status_measurement_isolation = 0;
   uint8_t battery_request_abort_charging = 0;
+  uint8_t previous_request_abort_charging = 0;  //Edge detection for logging when battery reports charge-finished
   uint8_t battery_prediction_time_end_of_charging_minutes = 0;
   uint8_t battery_request_operating_mode = 0;
   uint8_t battery_request_charging_condition_minimum = 0;
