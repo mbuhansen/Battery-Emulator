@@ -1268,10 +1268,8 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
         // Charging_Pwr = the battery's own measured charging power (active_power_W, positive = charging),
         // a 12-bit field at 25 W/bit spread over byte3 bit4-7 (low nibble) + byte4 (high 8 bits).
         // byte3 bit0-1 keeps Chg_Readiness=Ready (0x1).
-        int32_t charge_power_W = datalayer_battery ? datalayer_battery->status.active_power_W : 0;
-        if (charge_power_W < 0) {
-          charge_power_W = 0;  // Only report charging power; clamp discharge/idle to zero
-        }
+        // TEST (remove again): always report 2000 W charging power to the battery
+        int32_t charge_power_W = 2000;
         uint16_t charge_pwr_raw = charge_power_W / 25;  // 25 W per bit
         if (charge_pwr_raw > 0x0FFF) {
           charge_pwr_raw = 0x0FFF;  // Saturate to the 12-bit field
