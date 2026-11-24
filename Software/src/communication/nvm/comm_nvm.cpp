@@ -170,9 +170,9 @@ void init_stored_settings() {
   if (user_selected_bmw_i3_soc_havrla > 2) {
     user_selected_bmw_i3_soc_havrla = 0;
   }
-  uint32_t bmw_i3_end_charge_power_W = settings.getUInt("BMWI3ENDCHGW", 1000);
+  uint32_t bmw_i3_end_charge_power_W = settings.getUInt("BMWI3ENDCHGW", 400);
   if (bmw_i3_end_charge_power_W < 100 || bmw_i3_end_charge_power_W > 5000) {
-    bmw_i3_end_charge_power_W = 1000;
+    bmw_i3_end_charge_power_W = 400;
   }
   user_selected_bmw_i3_end_charge_power_W = (uint16_t)bmw_i3_end_charge_power_W;
   uint32_t bmw_i3_charge_ramp_shift_mV = settings.getUInt("BMWI3RAMPMV", 0);

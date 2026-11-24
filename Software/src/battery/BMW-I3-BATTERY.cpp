@@ -548,8 +548,9 @@ void BmwI3Battery::apply_havrla_power_limits() {
   }
 
   // Near full: limit from the highest cell voltage. The ramp ends at the user set end-of-charge power
-  // (default 1000 W) and can be shifted up by the user set ramp shift (default 0 mV). The end power is kept
-  // between 0.1 A and just below the ramp start current so the ramp stays valid.
+  // (default 400 W, about 1 A like the original ramp) and can be shifted up by the user set ramp shift
+  // (default 0 mV). The end power is kept between 0.1 A and just below the ramp start current so the ramp
+  // stays valid.
   HavrlaCellLimitConfig end_charge_config = *charge_config;
   if (battery_volts > 0) {
     uint32_t end_dA =

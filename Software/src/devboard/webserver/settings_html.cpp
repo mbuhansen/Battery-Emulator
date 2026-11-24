@@ -380,9 +380,9 @@ String settings_processor(const String& var, BatteryEmulatorSettingsStore& setti
   }
 
   if (var == "BMWI3ENDCHGW") {
-    // Out-of-range values boot as 1000 W (see init_stored_settings()), so show them that way.
-    uint32_t power_W = settings.getUInt("BMWI3ENDCHGW", 1000);
-    return String((power_W < 100 || power_W > 5000) ? 1000 : power_W);
+    // Out-of-range values boot as 400 W (see init_stored_settings()), so show them that way.
+    uint32_t power_W = settings.getUInt("BMWI3ENDCHGW", 400);
+    return String((power_W < 100 || power_W > 5000) ? 400 : power_W);
   }
 
   if (var == "BMWI3RAMPMV") {
