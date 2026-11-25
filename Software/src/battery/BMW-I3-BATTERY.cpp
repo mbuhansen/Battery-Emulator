@@ -993,6 +993,12 @@ void BmwI3Battery::monitor_contactor_engagement(unsigned long currentMillis) {
       } else if (currentMillis - cw_close_request_start >= CONTACTOR_ENGAGE_TIMEOUT_MS) {
         // Timed out waiting for engage - start the recovery pulse.
         set_event(EVENT_CONTACTOR_WATCHDOG_ACTIVE, cw_recovery_attempts, battery_index);
+        if (cw_recovery_attempts == 0) {
+          // The first close attempt did not engage: clear the battery DTCs before the second close, in case
+          // a stored fault keeps precharge blocked. Sent on the next 640 ms poll, during the recovery pulse.
+          UserRequestDTCreset = true;
+          logging.println("[BMW i3] Contactor watchdog: first attempt failed, clearing DTCs before retry");
+        }
         cw_recovery_attempts++;
         cw_state = CW_RECOVERY_OPEN_LOW;
         cw_recovery_phase_start = currentMillis;
