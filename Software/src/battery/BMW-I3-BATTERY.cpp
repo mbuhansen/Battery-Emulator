@@ -551,33 +551,66 @@ void BmwI3Battery::end_inverter_sleep() {
 }
 
 // Put the battery to sleep when the inverter opens the contactors after the battery has been in
-// operation, and wake it up again when the inverter allows closing. At normal startup the inverter
-// does not allow closing yet, and the battery has not been engaged, so nothing happens then.
-void BmwI3Battery::handle_inverter_sleep() {
+// operation, and wake it up again when the inverter allows closing.
+// "In operation" means the contactors are engaged and at least INVERTER_SLEEP_MIN_POWER_W has flowed
+// (charge or discharge) for INVERTER_SLEEP_ARM_MS in total since the battery woke up. A startup
+// handshake (e.g. a contactor test that opens and closes again) therefore never starts the sleep.
+// Once started, the sleep always runs to the end: the full shutdown sequence until CAN stops, then
+// INVERTER_SLEEP_SILENT_MS without any CAN, so the battery does a real restart when it is woken up.
+// Waking it halfway through the shutdown could leave it in the state that latches "precharge blocked".
+void BmwI3Battery::start_inverter_sleep() {
+  InverterSleep = REQUESTED;
+  inverter_sleep_armed = false;
+  inverter_sleep_active_ms = 0;
+  logging.println("[BMW i3] Inverter opened contactors, putting battery to sleep");
+}
+
+void BmwI3Battery::handle_inverter_sleep(unsigned long currentMillis) {
   bool inverter_allows_close = datalayer.system.status.inverter_allows_contactor_closing;
+  unsigned long elapsed_ms = currentMillis - inverter_sleep_last_ms;
+  inverter_sleep_last_ms = currentMillis;
+  if (elapsed_ms > 1000) {
+    elapsed_ms = 1000;  // First call or a stalled loop: never count more than one second at a time
+  }
 
   if (UserRequestBalancing != NONE) {
-    engaged_since_wake = false;  // User balancing is running, it wakes the battery when it ends
+    // User balancing is running, it wakes the battery when it ends
+    inverter_sleep_armed = false;
+    inverter_sleep_active_ms = 0;
     return;
   }
 
-  if (InverterSleep == NONE) {
-    if (battery_awake && battery_status_disconnecting_switch == 2) {
-      engaged_since_wake = true;  // Battery is in operation
+  if (InverterSleep != NONE) {
+    // Only wake once the battery has really been asleep, and only when the inverter wants it again
+    bool slept_long_enough =
+        can_communication_stopped && (currentMillis - can_stopped_millis >= INVERTER_SLEEP_SILENT_MS);
+    if (slept_long_enough && inverter_allows_close) {
+      end_inverter_sleep();
     }
-    if (engaged_since_wake && !inverter_allows_close) {
-      InverterSleep = REQUESTED;
-      engaged_since_wake = false;
-      logging.println("[BMW i3] Inverter opened contactors, putting battery to sleep");
+    return;
+  }
+
+  if (!inverter_sleep_armed) {
+    bool engaged = battery_awake && battery_status_disconnecting_switch == 2;
+    uint32_t power_W = ((uint32_t)abs((int32_t)battery_current) * battery_volts) / 100;  // dA * dV / 100 = W
+    if (engaged && power_W >= INVERTER_SLEEP_MIN_POWER_W) {
+      inverter_sleep_active_ms += elapsed_ms;
+      if (inverter_sleep_active_ms >= INVERTER_SLEEP_ARM_MS) {
+        inverter_sleep_armed = true;
+        logging.println("[BMW i3] Battery in operation, sleep on inverter open is armed");
+      }
     }
-  } else if (inverter_allows_close) {
-    end_inverter_sleep();
+    return;
+  }
+
+  if (!inverter_allows_close) {
+    start_inverter_sleep();
   }
 }
 
 void BmwI3Battery::update_values() {  //This function maps all the values fetched via CAN to the battery datalayer
-  if (contactor_recovery_force_wakeup_low) {
-    digitalWrite(wakeup_pin, LOW);  // Contactor watchdog recovery: pulse wakeup low to reset precharge latch
+  if (contactor_recovery_force_wakeup_low || cw_restart_active) {
+    digitalWrite(wakeup_pin, LOW);  // Contactor watchdog recovery: pulse / restart, wakeup low to reset precharge latch
   } else if (datalayer.system.info.equipment_stop_active == true || shutdown_state() == STARTING ||
              shutdown_state() == EXECUTING) {
     digitalWrite(wakeup_pin, LOW);         // Turn off wakeup pin
@@ -958,6 +991,7 @@ void BmwI3Battery::monitor_contactor_engagement(unsigned long currentMillis) {
     cw_close_request_start = 0;
     cw_recovery_attempts = 0;
     cw_gave_up_event_sent = false;
+    cw_restart_done = false;
     contactor_recovery_force_open = false;
     contactor_recovery_force_wakeup_low = false;
     return;
@@ -972,6 +1006,7 @@ void BmwI3Battery::monitor_contactor_engagement(unsigned long currentMillis) {
         cw_close_request_start = 0;
         cw_recovery_attempts = 0;
         cw_gave_up_event_sent = false;
+        cw_restart_done = false;
         break;
       }
       if (!emitting_close) {
@@ -981,6 +1016,18 @@ void BmwI3Battery::monitor_contactor_engagement(unsigned long currentMillis) {
         break;
       }
       if (cw_recovery_attempts >= MAX_CONTACTOR_RECOVERY_ATTEMPTS) {
+        if (!cw_restart_done) {
+          // The recovery pulses did not help. Some packs only recover from a real restart, so do the
+          // same as removing power from the emulator once: wakeup low and no CAN at all for
+          // CONTACTOR_RESTART_OFF_MS, then a fresh startup (see transmit_can()). The watchdog starts over
+          // after the restart; if that fails too, it gives up below.
+          cw_restart_done = true;
+          cw_restart_active = true;
+          cw_restart_start = currentMillis;
+          digitalWrite(wakeup_pin, LOW);
+          logging.println("[BMW i3] Contactor watchdog: recovery attempts failed, restarting battery");
+          break;
+        }
         if (!cw_gave_up_event_sent) {
           // All recovery attempts exhausted and the battery still won't report engaged.
           set_event(EVENT_CONTACTOR_WATCHDOG_FAILED, cw_recovery_attempts, battery_index);
@@ -1024,7 +1071,31 @@ void BmwI3Battery::monitor_contactor_engagement(unsigned long currentMillis) {
   }
 }
 
+// End of the contactor watchdog restart: wakeup high, CAN resumes and the battery does a fresh startup
+void BmwI3Battery::end_watchdog_restart() {
+  cw_restart_active = false;
+  digitalWrite(wakeup_pin, HIGH);
+  cmdState = SOC;
+  battery_info_available = false;
+  startup_counter_contactor = 0;  // Fresh startup: hold contactors open briefly after wakeup, as at boot
+  cw_state = CW_MONITOR;
+  cw_close_request_start = 0;
+  cw_recovery_attempts = 0;
+  cw_gave_up_event_sent = false;
+  contactor_recovery_force_open = false;
+  contactor_recovery_force_wakeup_low = false;
+  logging.println("[BMW i3] Contactor watchdog: restart done, waking up battery");
+}
+
 void BmwI3Battery::transmit_can(unsigned long currentMillis) {
+
+  // Contactor watchdog restart: wakeup low and no CAN at all, as if the emulator had no power
+  if (cw_restart_active) {
+    if (currentMillis - cw_restart_start < CONTACTOR_RESTART_OFF_MS) {
+      return;
+    }
+    end_watchdog_restart();
+  }
 
   // Handle balancing mode request - simulates real car shutdown sequence from discharge log
   // (timed from balancing start = 0x3E9 byte2 -> 0x41, the charge-finished signal):
@@ -1032,7 +1103,7 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
   // t=54s:  0x10B contactor opens (byte1 high nibble 1->0)
   // t=96s:  All CAN communication stops (battery goes to sleep)
   // The same sequence is used when the inverter opens the contactors after operation (inverter sleep).
-  handle_inverter_sleep();
+  handle_inverter_sleep(currentMillis);
   if (shutdown_state() != NONE && !balancing_mode_active) {
     balancing_mode_active = true;
     balancing_start_time = currentMillis;
@@ -1072,6 +1143,7 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
     // Stop all CAN communication after ~96s (battery sleeps), ~42s after contactors open
     if (elapsed_time >= BALANCING_CAN_STOP_DELAY_MS) {
       can_communication_stopped = true;
+      can_stopped_millis = currentMillis;
       battery_awake = false;  // Battery is sleeping, must re-detect on wakeup via 0x112
     }
   }
