@@ -34,9 +34,9 @@ class BmwI3Battery : public CanBattery {
   static constexpr const char* Name = "BMW i3";
 
   bool supports_balancing() { return true; }
-  bool is_balancing_active() { return UserRequestBalancing != NONE; }
+  bool is_balancing_active() { return shutdown_state() != NONE; }
   const char* get_balancing_state_string() {
-    switch (UserRequestBalancing) {
+    switch (shutdown_state()) {
       case NONE:
         return "None";
       case REQUESTED:
@@ -82,7 +82,7 @@ class BmwI3Battery : public CanBattery {
   // Status cold shutoff valve, 0 OK, 1 Short circuit to GND, 2 Short circuit to 12V, 3 Line break, 6 Driver error, 12 Stuck, 13 Stuck, 15 Invalid Signal
   uint8_t ST_cold_shutoff_valve() { return battery_status_cold_shutoff_valve; }
   // Status balancing
-  uint8_t ST_balancing_status() { return UserRequestBalancing; }
+  uint8_t ST_balancing_status() { return shutdown_state(); }
   // Charge-abort request from the battery via 0x431 RQ_ABRT_CHGNG
   const char* get_abort_charging_string() {
     switch (battery_request_abort_charging) {
@@ -116,6 +116,28 @@ class BmwI3Battery : public CanBattery {
   bool UserRequestDTCreset = false;
   enum BalancingState { NONE, REQUESTED, STARTING, EXECUTING };
   BalancingState UserRequestBalancing = NONE;
+
+  // Sleep on inverter open: once the battery has been in operation (contactors engaged and real
+  // charge/discharge power for a while) and the inverter then opens the contactors, run the same
+  // shutdown sequence as balancing so the SME really goes to sleep (an awake SME with open contactors
+  // can latch "Error precharge blocked"). The sleep always runs to the end, and the battery is only woken
+  // up after INVERTER_SLEEP_SILENT_MS without CAN and when the inverter allows closing, so it does a real
+  // restart. It is shown as balancing in the UI (the battery balances by itself while asleep if needed). Unlike
+  // user balancing, the last battery values and power limits are kept, and no balancing start/end events
+  // are raised.
+  BalancingState InverterSleep = NONE;
+  static const uint32_t INVERTER_SLEEP_MIN_POWER_W = 500;  // Power that counts as operation
+  static const uint32_t INVERTER_SLEEP_ARM_MS = 60000;     // Time at that power before sleep is armed
+  static const uint32_t INVERTER_SLEEP_SILENT_MS = 15000;  // No CAN for this long after the shutdown before wakeup
+  bool inverter_sleep_armed = false;                       // Battery has been in operation since it woke up
+  uint32_t inverter_sleep_active_ms = 0;                   // Time with contactors engaged and power above the limit
+  unsigned long inverter_sleep_last_ms = 0;                // Last call of handle_inverter_sleep()
+  unsigned long can_stopped_millis = 0;                    // When the shutdown sequence stopped all CAN
+  void start_inverter_sleep();
+  void end_inverter_sleep();
+  // Shutdown sequence state, user balancing takes priority over inverter sleep
+  BalancingState shutdown_state() const { return UserRequestBalancing != NONE ? UserRequestBalancing : InverterSleep; }
+  void handle_inverter_sleep(unsigned long currentMillis);
   unsigned long UserRequestBalancingMillis = 0;
 
   const int MAX_CELL_VOLTAGE_60AH = 4110;   // Battery is put into emergency stop if one cell goes over this value
@@ -429,6 +451,8 @@ class BmwI3Battery : public CanBattery {
   static const int BALANCING_CONTACTOR_DELAY_MS = 54000;  // Open contactors ~54s after charge-finished
   static const int BALANCING_CAN_STOP_DELAY_MS = 96000;   // Stop all CAN ~96s after charge-finished (battery sleeps)
   static const int BALANCING_12F_STEPS = 9;
+  // Charging power reported to the battery in 0x3E9 while in charge mode (not balancing)
+  static const uint16_t CHARGING_PWR_REPORTED_W = 2000;
   const unsigned long balancing_12F_times[BALANCING_12F_STEPS] = {0, 625, 1250, 1875, 2500, 3125, 3750, 4375, 5000};
   const uint8_t balancing_12F_values[BALANCING_12F_STEPS] = {0xDD, 0x6D, 0x5D, 0x5C, 0x4C, 0x3C, 0x2C, 0x1C, 0x1A};
 
@@ -439,19 +463,27 @@ class BmwI3Battery : public CanBattery {
   // Contactor-engagement watchdog: recovers the battery when it latches "Error precharge
   // blocked" and refuses to engage despite a close command. After CONTACTOR_ENGAGE_TIMEOUT_MS
   // without "engaged", it pulses wakeup low (sending open on CAN), then wakeup high and
-  // resumes the close command. Limited to MAX_CONTACTOR_RECOVERY_ATTEMPTS attempts.
+  // resumes the close command. Limited to MAX_CONTACTOR_RECOVERY_ATTEMPTS attempts. If the first close
+  // does not engage, the battery DTCs are cleared during the first recovery pulse. If all attempts fail,
+  // the battery is restarted once: wakeup low and no CAN for CONTACTOR_RESTART_OFF_MS, as if the emulator
+  // had no power, then a fresh startup and a new round of attempts.
   enum ContactorWatchdogState { CW_MONITOR, CW_RECOVERY_OPEN_LOW };
   ContactorWatchdogState cw_state = CW_MONITOR;
   unsigned long cw_close_request_start = 0;   // when the current un-engaged close began
   unsigned long cw_recovery_phase_start = 0;  // start of the wakeup-low pulse
   uint8_t cw_recovery_attempts = 0;
   bool cw_gave_up_event_sent = false;          // ensures EVENT_CONTACTOR_WATCHDOG_FAILED fires only once per arm cycle
+  bool cw_restart_done = false;                // the one restart has been used for this close request
+  bool cw_restart_active = false;              // restart running: wakeup low, no CAN
+  unsigned long cw_restart_start = 0;          // when the restart began
   bool contactor_recovery_force_open = false;  // force BMW_10B open during recovery
   bool contactor_recovery_force_wakeup_low = false;  // force wakeup pin low during recovery
   static const unsigned long CONTACTOR_ENGAGE_TIMEOUT_MS = 3000;
   static const unsigned long RECOVERY_WAKEUP_LOW_MS = 2000;
   static const uint8_t MAX_CONTACTOR_RECOVERY_ATTEMPTS = 3;
+  static const unsigned long CONTACTOR_RESTART_OFF_MS = 10000;  // wakeup low and no CAN during the restart
   void monitor_contactor_engagement(unsigned long currentMillis);
+  void end_watchdog_restart();
 
   uint8_t startup_counter_contactor = 0;
   uint8_t alive_counter_20ms = 0;

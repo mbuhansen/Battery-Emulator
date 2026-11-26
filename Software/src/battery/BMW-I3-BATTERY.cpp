@@ -6,8 +6,8 @@
 #include "../datalayer/datalayer_extended.h"
 #include "../devboard/utils/common_functions.h"  //For CRC table
 #include "../devboard/utils/events.h"
+#include "../devboard/utils/logging.h"
 #ifndef SMALL_FLASH_DEVICE
-#include "../devboard/utils/logging.h"  //For debug logging
 #include "BATTERIES.h"
 #endif  // SMALL_FLASH_DEVICE
 
@@ -292,12 +292,16 @@ uint8_t BmwI3Battery::increment_alive_counter(uint8_t counter) {
 }
 
 void BmwI3Battery::initiate_balancing() {
+  if (InverterSleep != NONE) {
+    return;  // Already in the same shutdown/balancing state (inverter sleep), don't start over
+  }
   UserRequestBalancing = REQUESTED;
   UserRequestBalancingMillis = millis();
 }
 
 void BmwI3Battery::end_balancing() {
   UserRequestBalancing = NONE;
+  InverterSleep = NONE;  // Ending from the UI also wakes a battery put to sleep by the inverter
   UserRequestBalancingMillis = 0;
   balancing_mode_active = false;
   can_communication_stopped = false;
@@ -535,11 +539,80 @@ void BmwI3Battery::apply_havrla_power_limits() {
 }
 #endif  // SMALL_FLASH_DEVICE
 
+void BmwI3Battery::end_inverter_sleep() {
+  InverterSleep = NONE;
+  balancing_mode_active = false;
+  can_communication_stopped = false;
+  BMW_12F.data.u8[3] = BMW_12F_BYTE3_ACTIVE;  // Restore active state
+  cmdState = SOC;
+  battery_info_available = false;
+  startup_counter_contactor = 0;  // Fresh startup: hold contactors open briefly after wakeup, as at boot
+  logging.println("[BMW i3] Inverter allows closing again, waking up battery");
+}
+
+// Put the battery to sleep when the inverter opens the contactors after the battery has been in
+// operation, and wake it up again when the inverter allows closing.
+// "In operation" means the contactors are engaged and at least INVERTER_SLEEP_MIN_POWER_W has flowed
+// (charge or discharge) for INVERTER_SLEEP_ARM_MS in total since the battery woke up. A startup
+// handshake (e.g. a contactor test that opens and closes again) therefore never starts the sleep.
+// Once started, the sleep always runs to the end: the full shutdown sequence until CAN stops, then
+// INVERTER_SLEEP_SILENT_MS without any CAN, so the battery does a real restart when it is woken up.
+// Waking it halfway through the shutdown could leave it in the state that latches "precharge blocked".
+void BmwI3Battery::start_inverter_sleep() {
+  InverterSleep = REQUESTED;
+  inverter_sleep_armed = false;
+  inverter_sleep_active_ms = 0;
+  logging.println("[BMW i3] Inverter opened contactors, putting battery to sleep");
+}
+
+void BmwI3Battery::handle_inverter_sleep(unsigned long currentMillis) {
+  bool inverter_allows_close = datalayer.system.status.inverter_allows_contactor_closing;
+  unsigned long elapsed_ms = currentMillis - inverter_sleep_last_ms;
+  inverter_sleep_last_ms = currentMillis;
+  if (elapsed_ms > 1000) {
+    elapsed_ms = 1000;  // First call or a stalled loop: never count more than one second at a time
+  }
+
+  if (UserRequestBalancing != NONE) {
+    // User balancing is running, it wakes the battery when it ends
+    inverter_sleep_armed = false;
+    inverter_sleep_active_ms = 0;
+    return;
+  }
+
+  if (InverterSleep != NONE) {
+    // Only wake once the battery has really been asleep, and only when the inverter wants it again
+    bool slept_long_enough =
+        can_communication_stopped && (currentMillis - can_stopped_millis >= INVERTER_SLEEP_SILENT_MS);
+    if (slept_long_enough && inverter_allows_close) {
+      end_inverter_sleep();
+    }
+    return;
+  }
+
+  if (!inverter_sleep_armed) {
+    bool engaged = battery_awake && battery_status_disconnecting_switch == 2;
+    uint32_t power_W = ((uint32_t)abs((int32_t)battery_current) * battery_volts) / 100;  // dA * dV / 100 = W
+    if (engaged && power_W >= INVERTER_SLEEP_MIN_POWER_W) {
+      inverter_sleep_active_ms += elapsed_ms;
+      if (inverter_sleep_active_ms >= INVERTER_SLEEP_ARM_MS) {
+        inverter_sleep_armed = true;
+        logging.println("[BMW i3] Battery in operation, sleep on inverter open is armed");
+      }
+    }
+    return;
+  }
+
+  if (!inverter_allows_close) {
+    start_inverter_sleep();
+  }
+}
+
 void BmwI3Battery::update_values() {  //This function maps all the values fetched via CAN to the battery datalayer
-  if (contactor_recovery_force_wakeup_low) {
-    digitalWrite(wakeup_pin, LOW);  // Contactor watchdog recovery: pulse wakeup low to reset precharge latch
-  } else if (datalayer.system.info.equipment_stop_active == true || UserRequestBalancing == STARTING ||
-             UserRequestBalancing == EXECUTING) {
+  if (contactor_recovery_force_wakeup_low || cw_restart_active) {
+    digitalWrite(wakeup_pin, LOW);  // Contactor watchdog recovery: pulse / restart, wakeup low to reset precharge latch
+  } else if (datalayer.system.info.equipment_stop_active == true || shutdown_state() == STARTING ||
+             shutdown_state() == EXECUTING) {
     digitalWrite(wakeup_pin, LOW);         // Turn off wakeup pin
   } else if (millis64() > INTERVAL_1_S) {  // millis64: plain millis() wraps after 49.7 days
     digitalWrite(wakeup_pin, HIGH);        // Wake up the battery
@@ -550,15 +623,19 @@ void BmwI3Battery::update_values() {  //This function maps all the values fetche
   if (UserRequestBalancing == EXECUTING) {
     datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
     datalayer.system.status.system_status = STANDBY;
-    // During balancing sleep, report contactors as open so an old engaged state is not latched.
+  }
+  if (shutdown_state() == EXECUTING) {
+    datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+    // During balancing / inverter sleep, report contactors as open so an old engaged state is not latched.
     datalayer.system.status.contactors_engaged = 0;
     if (!contactor_control_enabled) {
       datalayer.system.status.dc_bus_live = false;
     }
   }
 
-  // Map internal balancing state to datalayer balancing_status
-  if (UserRequestBalancing == NONE) {
+  // Map internal balancing state to datalayer balancing_status (inverter sleep is the same shutdown state,
+  // the battery balances by itself while asleep if it needs to)
+  if (shutdown_state() == NONE) {
     datalayer_battery->status.balancing_status = BALANCING_STATUS_READY;
   } else {
     datalayer_battery->status.balancing_status = BALANCING_STATUS_ACTIVE;
@@ -677,7 +754,7 @@ void BmwI3Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
   switch (rx_frame.ID) {
     case 0x112:  //BMS [10ms] Status Of High-Voltage Battery - 2
       // Set to true unless balancing is going on and battery is supposed to go to sleep
-      battery_awake = UserRequestBalancing != EXECUTING;
+      battery_awake = shutdown_state() != EXECUTING;
       datalayer_battery->status.CAN_battery_still_alive =
           CAN_STILL_ALIVE;  //This message is only sent if 30C (Wakeup pin on battery) is energized with 12V
       battery_current = (rx_frame.data.u8[1] << 8 | rx_frame.data.u8[0]) - 8192;  //deciAmps (-819.2 to 819.0A)
@@ -723,7 +800,7 @@ void BmwI3Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
       break;
     case 0x2BD:  //BMS [100ms] Status diagnosis high voltage - 1
       // Set to true unless balancing is going on and battery is supposed to go to sleep
-      battery_awake = UserRequestBalancing != EXECUTING;
+      battery_awake = shutdown_state() != EXECUTING;
       if (!skipCRCCheck) {
         if (calculateCRC(rx_frame, rx_frame.DLC, 0x15) != rx_frame.data.u8[0]) {
           // If calculated CRC does not match transmitted CRC, increase CANerror counter
@@ -751,7 +828,7 @@ void BmwI3Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
       break;
     case 0x2FF:  //BMS [100ms] Status Heating High-Voltage Battery
       // Set to true unless balancing is going on and battery is supposed to go to sleep
-      battery_awake = UserRequestBalancing != EXECUTING;
+      battery_awake = shutdown_state() != EXECUTING;
       battery_actual_value_power_heating = (rx_frame.data.u8[1] << 4 | rx_frame.data.u8[0] >> 4);
       break;
     case 0x363:  //BMS [1s] Identification High-Voltage Battery
@@ -888,8 +965,8 @@ const char* BmwI3Battery::get_contactor_watchdog_string() {
 // pulse the wakeup pin low while sending an open command on CAN, then wakeup high and resume
 // the close command. This power-cycle resets the battery's precharge error latch.
 void BmwI3Battery::monitor_contactor_engagement(unsigned long currentMillis) {
-  // Contactors are intentionally open during balancing - disarm the watchdog.
-  if (UserRequestBalancing != NONE) {
+  // Contactors are intentionally open during balancing / inverter sleep - disarm the watchdog.
+  if (shutdown_state() != NONE) {
     cw_state = CW_MONITOR;
     cw_close_request_start = 0;
     cw_recovery_attempts = 0;
@@ -914,6 +991,7 @@ void BmwI3Battery::monitor_contactor_engagement(unsigned long currentMillis) {
     cw_close_request_start = 0;
     cw_recovery_attempts = 0;
     cw_gave_up_event_sent = false;
+    cw_restart_done = false;
     contactor_recovery_force_open = false;
     contactor_recovery_force_wakeup_low = false;
     return;
@@ -928,6 +1006,7 @@ void BmwI3Battery::monitor_contactor_engagement(unsigned long currentMillis) {
         cw_close_request_start = 0;
         cw_recovery_attempts = 0;
         cw_gave_up_event_sent = false;
+        cw_restart_done = false;
         break;
       }
       if (!emitting_close) {
@@ -937,6 +1016,18 @@ void BmwI3Battery::monitor_contactor_engagement(unsigned long currentMillis) {
         break;
       }
       if (cw_recovery_attempts >= MAX_CONTACTOR_RECOVERY_ATTEMPTS) {
+        if (!cw_restart_done) {
+          // The recovery pulses did not help. Some packs only recover from a real restart, so do the
+          // same as removing power from the emulator once: wakeup low and no CAN at all for
+          // CONTACTOR_RESTART_OFF_MS, then a fresh startup (see transmit_can()). The watchdog starts over
+          // after the restart; if that fails too, it gives up below.
+          cw_restart_done = true;
+          cw_restart_active = true;
+          cw_restart_start = currentMillis;
+          digitalWrite(wakeup_pin, LOW);
+          logging.println("[BMW i3] Contactor watchdog: recovery attempts failed, restarting battery");
+          break;
+        }
         if (!cw_gave_up_event_sent) {
           // All recovery attempts exhausted and the battery still won't report engaged.
           set_event(EVENT_CONTACTOR_WATCHDOG_FAILED, cw_recovery_attempts, battery_index);
@@ -949,6 +1040,12 @@ void BmwI3Battery::monitor_contactor_engagement(unsigned long currentMillis) {
       } else if (currentMillis - cw_close_request_start >= CONTACTOR_ENGAGE_TIMEOUT_MS) {
         // Timed out waiting for engage - start the recovery pulse.
         set_event(EVENT_CONTACTOR_WATCHDOG_ACTIVE, cw_recovery_attempts, battery_index);
+        if (cw_recovery_attempts == 0) {
+          // The first close attempt did not engage: clear the battery DTCs before the second close, in case
+          // a stored fault keeps precharge blocked. Sent on the next 640 ms poll, during the recovery pulse.
+          UserRequestDTCreset = true;
+          logging.println("[BMW i3] Contactor watchdog: first attempt failed, clearing DTCs before retry");
+        }
         cw_recovery_attempts++;
         cw_state = CW_RECOVERY_OPEN_LOW;
         cw_recovery_phase_start = currentMillis;
@@ -974,19 +1071,45 @@ void BmwI3Battery::monitor_contactor_engagement(unsigned long currentMillis) {
   }
 }
 
+// End of the contactor watchdog restart: wakeup high, CAN resumes and the battery does a fresh startup
+void BmwI3Battery::end_watchdog_restart() {
+  cw_restart_active = false;
+  digitalWrite(wakeup_pin, HIGH);
+  cmdState = SOC;
+  battery_info_available = false;
+  startup_counter_contactor = 0;  // Fresh startup: hold contactors open briefly after wakeup, as at boot
+  cw_state = CW_MONITOR;
+  cw_close_request_start = 0;
+  cw_recovery_attempts = 0;
+  cw_gave_up_event_sent = false;
+  contactor_recovery_force_open = false;
+  contactor_recovery_force_wakeup_low = false;
+  logging.println("[BMW i3] Contactor watchdog: restart done, waking up battery");
+}
+
 void BmwI3Battery::transmit_can(unsigned long currentMillis) {
+
+  // Contactor watchdog restart: wakeup low and no CAN at all, as if the emulator had no power
+  if (cw_restart_active) {
+    if (currentMillis - cw_restart_start < CONTACTOR_RESTART_OFF_MS) {
+      return;
+    }
+    end_watchdog_restart();
+  }
 
   // Handle balancing mode request - simulates real car shutdown sequence from discharge log
   // (timed from balancing start = 0x3E9 byte2 -> 0x41, the charge-finished signal):
   // t=0s:   0x12F byte3 begins sequence DD->6D->5D->5C->4C->3C->2C->1C->1A (~5s)
   // t=54s:  0x10B contactor opens (byte1 high nibble 1->0)
   // t=96s:  All CAN communication stops (battery goes to sleep)
-  if (UserRequestBalancing != NONE && !balancing_mode_active) {
+  // The same sequence is used when the inverter opens the contactors after operation (inverter sleep).
+  handle_inverter_sleep(currentMillis);
+  if (shutdown_state() != NONE && !balancing_mode_active) {
     balancing_mode_active = true;
     balancing_start_time = currentMillis;
     can_communication_stopped = false;
     cmdState = OFF;
-  } else if (UserRequestBalancing == NONE && balancing_mode_active) {
+  } else if (shutdown_state() == NONE && balancing_mode_active) {
     // Resume: already handled in end_balancing(), just ensure flags are consistent
     balancing_mode_active = false;
     can_communication_stopped = false;
@@ -1006,17 +1129,21 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
     }
 
     // Transition states based on elapsed time
-    if (UserRequestBalancing == REQUESTED && elapsed_time >= 20000) {
-      UserRequestBalancing = STARTING;
+    BalancingState& sequence_state = (UserRequestBalancing != NONE) ? UserRequestBalancing : InverterSleep;
+    if (sequence_state == REQUESTED && elapsed_time >= 20000) {
+      sequence_state = STARTING;
     }
-    if (UserRequestBalancing == STARTING && elapsed_time >= INTERVAL_30_S) {
-      UserRequestBalancing = EXECUTING;
-      set_event(EVENT_BALANCING_START, 0, battery_index);
+    if (sequence_state == STARTING && elapsed_time >= INTERVAL_30_S) {
+      sequence_state = EXECUTING;
+      if (UserRequestBalancing != NONE) {
+        set_event(EVENT_BALANCING_START, 0, battery_index);
+      }
     }
 
     // Stop all CAN communication after ~96s (battery sleeps), ~42s after contactors open
     if (elapsed_time >= BALANCING_CAN_STOP_DELAY_MS) {
       can_communication_stopped = true;
+      can_stopped_millis = currentMillis;
       battery_awake = false;  // Battery is sleeping, must re-detect on wakeup via 0x112
     }
   }
@@ -1048,8 +1175,9 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
 
       // Contactor control: open ~54 seconds after balancing start (charge-finished signal)
       // Until then, contactors stay closed (matches real car discharge log)
-      bool contactors_should_open =
-          balancing_mode_active && (currentMillis - balancing_start_time >= BALANCING_CONTACTOR_DELAY_MS);
+      // During inverter sleep the inverter has already opened them (handled by the last branch below).
+      bool contactors_should_open = balancing_mode_active && UserRequestBalancing != NONE &&
+                                    (currentMillis - balancing_start_time >= BALANCING_CONTACTOR_DELAY_MS);
 
       if (contactors_should_open) {
         BMW_10B.data.u8[1] = 0x00;  // Open contactors - balancing shutdown sequence
@@ -1184,19 +1312,13 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
         BMW_3E9.data.u8[4] = 0x00;
       } else {
         BMW_3E9.data.u8[2] = 0x21;  // Charge_active + PlugCharge (always in charging / calibration mode)
-        // Charging_Pwr = the battery's own measured charging power (active_power_W, positive = charging),
-        // a 12-bit field at 25 W/bit spread over byte3 bit4-7 (low nibble) + byte4 (high 8 bits).
+        // Charging_Pwr: a fixed 2000 W, so the battery always sees an active charging session with power,
+        // also while idle or discharging (the measured power would report 0 W then).
+        // 12-bit field at 25 W/bit spread over byte3 bit4-7 (low nibble) + byte4 (high 8 bits).
         // byte3 bit0-1 keeps Chg_Readiness=Ready (0x1).
-        int32_t charge_power_W = datalayer_battery ? datalayer_battery->status.active_power_W : 0;
-        if (charge_power_W < 0) {
-          charge_power_W = 0;  // Only report charging power; clamp discharge/idle to zero
-        }
-        uint16_t charge_pwr_raw = charge_power_W / 25;  // 25 W per bit
-        if (charge_pwr_raw > 0x0FFF) {
-          charge_pwr_raw = 0x0FFF;  // Saturate to the 12-bit field
-        }
-        BMW_3E9.data.u8[3] = 0x01 | ((charge_pwr_raw & 0x0F) << 4);  // Chg_Readiness=Ready + Charging_Pwr low nibble
-        BMW_3E9.data.u8[4] = (charge_pwr_raw >> 4) & 0xFF;           // Charging_Pwr high bits
+        const uint16_t charge_pwr_raw = CHARGING_PWR_REPORTED_W / 25;  // 25 W per bit
+        BMW_3E9.data.u8[3] = 0x01 | ((charge_pwr_raw & 0x0F) << 4);    // Chg_Readiness=Ready + Charging_Pwr low nibble
+        BMW_3E9.data.u8[4] = (charge_pwr_raw >> 4) & 0xFF;             // Charging_Pwr high bits
       }
 
       transmit_can_frame(&BMW_3E9);  // Load Status
